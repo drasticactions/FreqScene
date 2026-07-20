@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ProjectMDotNet.Avalonia</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ProjectMDotNet/ProjectMDotNet.csproj" />
+    <PackageReference Include="Avalonia" />
+  </ItemGroup>
+
+</Project>
