@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>ProjectMDotNet</RootNamespace>
+    <NoWarn>$(NoWarn);CS1591;CS8981;CS8618</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProjectMDotNet.Avalonia" />
+  </ItemGroup>
+
+</Project>
