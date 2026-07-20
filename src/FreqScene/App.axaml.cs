@@ -24,8 +24,18 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            desktop.Exit += (_, _) => _coordinator?.Dispose();
             _coordinator = new VisualizerCoordinator();
             _mainWindow = new MainWindow(_coordinator);
+            _mainWindow.Closing += (_, e) =>
+            {
+                if (!_quitting)
+                {
+                    e.Cancel = true;
+                    _mainWindow.Hide();
+                }
+            };
             desktop.MainWindow = _mainWindow;
 
             SetupTrayIcon(desktop);
@@ -39,6 +49,19 @@ public partial class App : Application
         _audioMenu = new NativeMenu();
         BuildAudioMenu();
         var audioItem = new NativeMenuItem("Audio Source") { Menu = _audioMenu };
+        
+        var showItem = new NativeMenuItem("Show Visualizer");
+        showItem.Click += (_, _) =>
+        {
+            _mainWindow?.Show();
+            _mainWindow?.Activate();
+        };
+
+        var hideItem = new NativeMenuItem("Hide Visualizer");
+        hideItem.Click += (_, _) =>
+        {
+            _mainWindow?.Hide();
+        };
 
         var quitItem = new NativeMenuItem("Quit");
         quitItem.Click += (_, _) =>
@@ -53,6 +76,8 @@ public partial class App : Application
             {
                 audioItem,
                 new NativeMenuItemSeparator(),
+                showItem,
+                hideItem,
                 quitItem,
             },
         };
