@@ -1,0 +1,102 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:FreqScene"
+        x:Class="FreqScene.PlaylistEditorWindow"
+        x:DataType="local:PlaylistEditorViewModel"
+        Width="820" Height="560"
+        Title="FreqScene — Playlist">
+    <DockPanel Margin="8">
+
+        <!-- Toolbar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+            <TextBox Width="200"
+                     PlaceholderText="Search"
+                     Text="{Binding SearchText, Mode=TwoWay}" />
+            <Button Content="Add Files…" Click="OnAddFiles" />
+            <Button Content="Add Folder…" Click="OnAddFolder" />
+            <Button Content="Remove" Click="OnRemoveSelected" />
+            <Button Content="Clear" Click="OnClear" />
+            <Separator />
+            <Button Content="Sort by Name" Click="OnSortByName" />
+            <Button Content="Sort by Path" Click="OnSortByPath" />
+            <Separator />
+            <Button Content="▲" ToolTip.Tip="Move up (Alt+Up)" Click="OnMoveUp" />
+            <Button Content="▼" ToolTip.Tip="Move down (Alt+Down)" Click="OnMoveDown" />
+        </StackPanel>
+
+        <!-- Playback controls -->
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="0,8,0,0">
+            <Button Grid.Column="0" Content="◀ Prev" Click="OnPrevious" />
+            <Button Grid.Column="1" Content="Next ▶" Margin="6,0,0,0" Click="OnNext" />
+            <CheckBox Grid.Column="2" Content="Shuffle" Margin="16,0,0,0"
+                      IsChecked="{Binding Shuffle, Mode=TwoWay}" />
+            <CheckBox Grid.Column="3" Content="Lock preset" Margin="8,0,0,0"
+                      IsChecked="{Binding PresetLocked, Mode=TwoWay}" />
+            <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6" Margin="16,0,0,0"
+                        VerticalAlignment="Center">
+                <TextBlock Text="Duration" VerticalAlignment="Center" />
+                <NumericUpDown Width="110" Minimum="1" Maximum="600" Increment="1"
+                               FormatString="0 s"
+                               Value="{Binding PresetDuration, Mode=TwoWay}" />
+            </StackPanel>
+            <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" Margin="16,0,0,0"
+                        VerticalAlignment="Center">
+                <TextBlock Text="Gain" VerticalAlignment="Center" />
+                <Slider Width="120" Minimum="0" Maximum="4" TickFrequency="0.1"
+                        IsSnapToTickEnabled="True"
+                        VerticalAlignment="Center"
+                        Value="{Binding Gain, Mode=TwoWay}" />
+                <TextBlock Width="40" VerticalAlignment="Center" Opacity="0.7"
+                           Text="{Binding Gain, StringFormat={}{0:0.0}×}" />
+            </StackPanel>
+            <TextBlock Grid.Column="7" Text="{Binding Status}"
+                       VerticalAlignment="Center" Opacity="0.7" />
+        </Grid>
+
+        <!-- Playlist -->
+        <DataGrid x:Name="PlaylistGrid"
+                  ItemsSource="{Binding Items}"
+                  IsReadOnly="True"
+                  SelectionMode="Extended"
+                  CanUserSortColumns="False"
+                  CanUserReorderColumns="False"
+                  GridLinesVisibility="Horizontal"
+                  DoubleTapped="OnRowDoubleTapped"
+                  ContextRequested="OnGridContextRequested">
+            <DataGrid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Play" Click="OnPlaySelected" />
+                    <Separator />
+                    <MenuItem Header="Move to Top" Click="OnMoveToTop"
+                              IsEnabled="{Binding CanReorder}" />
+                    <MenuItem Header="Move to Bottom" Click="OnMoveToBottom"
+                              IsEnabled="{Binding CanReorder}" />
+                    <Separator />
+                    <MenuItem Header="Remove" Click="OnRemoveSelected" />
+                </ContextMenu>
+            </DataGrid.ContextMenu>
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Header="#" Width="52">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate x:DataType="local:PresetEntry">
+                            <Panel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Number}"
+                                           Opacity="0.6"
+                                           IsVisible="{Binding !IsPlaying}"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Left" />
+                                <TextBlock Text="▶"
+                                           Foreground="#5ADC82"
+                                           IsVisible="{Binding IsPlaying}"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Left" />
+                            </Panel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Name" Binding="{Binding Name, x:DataType=local:PresetEntry}" Width="2*" />
+                <DataGridTextColumn Header="Directory" Binding="{Binding Directory, x:DataType=local:PresetEntry}" Width="3*" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

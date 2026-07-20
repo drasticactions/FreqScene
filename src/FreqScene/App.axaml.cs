@@ -13,6 +13,7 @@ public partial class App : Application
     private NativeMenu? _audioMenu;
     private VisualizerCoordinator? _coordinator;
     private MainWindow? _mainWindow;
+    private PlaylistEditorWindow? _playlistWindow;
     private bool _quitting;
 
     public override void Initialize()
@@ -57,6 +58,9 @@ public partial class App : Application
             _mainWindow?.Activate();
         };
 
+        var playlistItem = new NativeMenuItem("Playlist…");
+        playlistItem.Click += (_, _) => ShowPlaylistEditor();
+
         var hideItem = new NativeMenuItem("Hide Visualizer");
         hideItem.Click += (_, _) =>
         {
@@ -75,6 +79,7 @@ public partial class App : Application
             Items =
             {
                 audioItem,
+                playlistItem,
                 new NativeMenuItemSeparator(),
                 showItem,
                 hideItem,
@@ -89,6 +94,30 @@ public partial class App : Application
             Menu = menu,
         };
         TrayIcon.SetIcons(this, [trayIcon]);
+    }
+
+    private void ShowPlaylistEditor()
+    {
+        if (_coordinator is null)
+        {
+            return;
+        }
+
+        if (_playlistWindow is null)
+        {
+            _playlistWindow = new PlaylistEditorWindow(_coordinator);
+            _playlistWindow.Closing += (_, e) =>
+            {
+                if (!_quitting)
+                {
+                    e.Cancel = true;
+                    _playlistWindow.Hide();
+                }
+            };
+        }
+
+        _playlistWindow.Show();
+        _playlistWindow.Activate();
     }
 
     private void BuildAudioMenu()
