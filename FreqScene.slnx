@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ProjectMDotNet/ProjectMDotNet.csproj" />
+    <Project Path="src/ProjectMDotNet.Avalonia/ProjectMDotNet.Avalonia.csproj" />
+  </Folder>
+</Solution>
