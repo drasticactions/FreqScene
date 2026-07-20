@@ -30,10 +30,15 @@ class Program
 
         if (OperatingSystem.IsMacOS())
         {
-            builder = builder.With(new AvaloniaNativePlatformOptions
-            {
-                RenderingMode = [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software],
-            });
+            builder = builder
+                .With(new AvaloniaNativePlatformOptions
+                {
+                    RenderingMode = [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software],
+                })
+                .With(new MacOSPlatformOptions
+                {
+                    ShowInDock = false,
+                });
         }
 
         return builder;
