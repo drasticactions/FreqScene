@@ -1,0 +1,14 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ValidateXcodeVersion>false</ValidateXcodeVersion>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
+    <NativeAssetsDirectory Condition="'$(NativeAssetsDirectory)' == ''">$(RepoRoot)artifacts/native/</NativeAssetsDirectory>
+  </PropertyGroup>
+
+</Project>
