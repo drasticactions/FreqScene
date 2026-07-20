@@ -6,6 +6,8 @@ namespace FreqScene;
 
 public partial class App : Application
 {
+    private VisualizerCoordinator? _coordinator;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -15,7 +17,8 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            _coordinator = new VisualizerCoordinator();
+            desktop.MainWindow = new MainWindow(_coordinator);
         }
 
         base.OnFrameworkInitializationCompleted();

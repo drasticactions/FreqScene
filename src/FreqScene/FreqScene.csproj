@@ -13,5 +13,13 @@
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Simple" />
     <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(NativeAssetsDirectory)win-x64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/win-x64/native/%(Filename)%(Extension)" Visible="false" />
+    <None Include="$(NativeAssetsDirectory)osx-arm64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/osx-arm64/native/%(Filename)%(Extension)" Visible="false" />
+    <None Include="$(NativeAssetsDirectory)osx-x64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/osx-x64/native/%(Filename)%(Extension)" Visible="false" />
+    <None Include="$(NativeAssetsDirectory)linux-x64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/linux-x64/native/%(Filename)%(Extension)" Visible="false" />
   </ItemGroup>
 </Project>

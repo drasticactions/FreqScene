@@ -14,8 +14,28 @@ class Program
 
     // Avalonia configuration, don't remove; also used by visual designer.
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>()
+    {
+        var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
-            .LogToTrace();
+            .LogToTrace(global::Avalonia.Logging.LogEventLevel.Information);
+
+        if (OperatingSystem.IsWindows())
+        {
+            builder = builder.With(new Win32PlatformOptions
+            {
+                RenderingMode = [Win32RenderingMode.Wgl, Win32RenderingMode.Software],
+            });
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            builder = builder.With(new AvaloniaNativePlatformOptions
+            {
+                RenderingMode = [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software],
+            });
+        }
+
+        return builder;
+    }
 }

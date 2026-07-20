@@ -2,5 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/ProjectMDotNet/ProjectMDotNet.csproj" />
     <Project Path="src/ProjectMDotNet.Avalonia/ProjectMDotNet.Avalonia.csproj" />
+    <Project Path="src/FreqScene/FreqScene.csproj" />
   </Folder>
 </Solution>
