@@ -6,6 +6,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
     <NativeAssetsDirectory Condition="'$(NativeAssetsDirectory)' == ''">$(RepoRoot)artifacts/native/</NativeAssetsDirectory>

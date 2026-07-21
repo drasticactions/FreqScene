@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <NoWarn>$(NoWarn);AVLN3001</NoWarn>
+    <NoWarn>$(NoWarn);AVLN3001;IL2104</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +20,10 @@
     <PackageReference Include="Avalonia.Themes.Simple" />
     <PackageReference Include="Avalonia.Fonts.Inter" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Avalonia.Controls.DataGrid" />
   </ItemGroup>
 
   <ItemGroup>

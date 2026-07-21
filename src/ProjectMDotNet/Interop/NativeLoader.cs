@@ -1,15 +1,10 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace ProjectMDotNet.Interop;
 
-/// <summary>
-/// Resolves the logical library names used by the generated bindings
-/// (<c>projectM-4</c>, <c>projectM-4-playlist</c>) to the platform-specific
-/// files shipped in <c>runtimes/{rid}/native</c>. The playlist library links
-/// against the core library, so core is always loaded first.
-/// </summary>
 internal static class NativeLoader
 {
     internal const string CoreLibrary = "projectM-4";
@@ -25,9 +20,6 @@ internal static class NativeLoader
 
     private static IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
-        // On iOS both libraries are statically linked into the app executable
-        // (App Store rules forbid loose dylibs), so every logical name resolves
-        // to the main program image.
         if (OperatingSystem.IsIOS() &&
             libraryName is CoreLibrary or PlaylistLibrary)
         {
@@ -137,6 +129,8 @@ internal static class NativeLoader
         }
     }
 
+    [UnconditionalSuppressMessage("SingleFile", "IL3000:Assembly.Location returns an empty string for assemblies embedded in a single-file app",
+        Justification = "The empty-string result is explicitly handled below; in a single-file/published app AppContext.BaseDirectory already covers native resolution.")]
     private static IEnumerable<string> ProbeDirectories()
     {
         var baseDirectory = AppContext.BaseDirectory;
