@@ -37,6 +37,10 @@ public partial class App : Application
         {
             _desktop = desktop;
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
+
+
             desktop.Exit += (_, _) =>
             {
                 (_activeWindow as INativeVisualizerWindow)?.Close();
@@ -56,6 +60,15 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static void OnDispatcherUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        if (e.Exception is OperationCanceledException
+            && e.Exception.StackTrace?.Contains("DBusTrayIconImpl", StringComparison.Ordinal) == true)
+        {
+            e.Handled = true;
+        }
     }
 
     private void ApplyMode(DisplayMode mode, bool persist = true)
