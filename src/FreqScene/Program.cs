@@ -41,6 +41,11 @@ class Program
                 });
         }
 
+        if (OperatingSystem.IsLinux())
+        {
+            builder = builder.UseWayland();
+        }
+
         return builder;
     }
 }

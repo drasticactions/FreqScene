@@ -14,6 +14,7 @@
     <ProjectReference Include="../ProjectMDotNet.Avalonia/ProjectMDotNet.Avalonia.csproj" />
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Wayland" />
     <PackageReference Include="Avalonia.Themes.Simple" />
     <PackageReference Include="Avalonia.Fonts.Inter" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
