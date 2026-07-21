@@ -403,7 +403,7 @@ internal sealed class LinuxWaylandSession : IDisposable
         _surface = _compositor!.CreateSurface();
         var layer = mode == DisplayMode.Overlay
             ? ZwlrLayerShellV1.LayerEnum.Top
-            : ZwlrLayerShellV1.LayerEnum.Background;
+            : WallpaperLayer();
         _layerSurface = _layerShell.GetLayerSurface(
             _surface, _selectedOutput?.Output, layer, "freqscene", new ZwlrLayerSurfaceV1.Listener.Relay
             {
@@ -433,15 +433,24 @@ internal sealed class LinuxWaylandSession : IDisposable
         _layerSurface.SetExclusiveZone(-1);
         _layerSurface.SetKeyboardInteractivity(ZwlrLayerSurfaceV1.KeyboardInteractivityEnum.None);
 
-        if (mode == DisplayMode.Overlay)
+        // An empty input region makes the surface click-through.
+        using (var region = _compositor.CreateRegion())
         {
-            // An empty input region makes the overlay click-through.
-            using var region = _compositor.CreateRegion();
             _surface.SetInputRegion(region);
         }
 
         _surface.Commit();
     }
+
+    // KWin puts background layer surfaces in the same stacking layer as the Plasma
+    // desktop window and raises that window whenever it is activated, so a background
+    // wallpaper disappears behind it after any click on the desktop. The bottom layer
+    // stays above the desktop window and below normal windows permanently.
+    private static ZwlrLayerShellV1.LayerEnum WallpaperLayer() =>
+        (Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP") ?? string.Empty)
+            .Contains("KDE", StringComparison.OrdinalIgnoreCase)
+            ? ZwlrLayerShellV1.LayerEnum.Bottom
+            : ZwlrLayerShellV1.LayerEnum.Background;
 
     private void OnSeatCapabilities(WlSeat seat, WlSeat.CapabilityEnum capabilities)
     {
