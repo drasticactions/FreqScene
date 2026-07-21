@@ -23,6 +23,7 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
 
     private const uint WmClose = 0x0010;
     private const uint WmEraseBackground = 0x0014;
+    private const uint WmWindowPosChanging = 0x0046;
     private const uint WmNcCalcSize = 0x0083;
     private const uint WmNcHitTest = 0x0084;
     private const uint WmDpiChanged = 0x02E0;
@@ -59,6 +60,8 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
     private const int IdcArrow = 32512;
 
     private static readonly IntPtr HwndBottom = new(1);
+
+    private static readonly HashSet<IntPtr> s_bottomPinned = [];
 
     private static bool s_classRegistered;
 
@@ -169,10 +172,11 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
         _coordinator.RenderScaleChanged -= _onRenderScaleChanged;
         _coordinator.DetachControl(_host);
         _host.Dispose();
+        var pinned = s_bottomPinned.Remove(_hwnd);
         WindowsInterop.DestroyWindow(_hwnd);
         _hwnd = IntPtr.Zero;
 
-        if (_mode == DisplayMode.Wallpaper)
+        if (_mode == DisplayMode.Wallpaper && !pinned)
         {
             // Vacating the shell's wallpaper host leaves it blank otherwise.
             RefreshDesktop();
@@ -226,30 +230,42 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
     private void AttachToWallpaperHost(int x, int y, int width, int height)
     {
         var host = FindWallpaperHost();
-        var originX = 0;
-        var originY = 0;
         if (host != IntPtr.Zero)
         {
             WindowsInterop.SetParent(_hwnd, host);
+            var originX = 0;
+            var originY = 0;
             if (WindowsInterop.GetWindowRect(host, out var hostRect))
             {
                 originX = hostRect.Left;
                 originY = hostRect.Top;
             }
+
+            WindowsInterop.SetWindowPos(
+                _hwnd, IntPtr.Zero, x - originX, y - originY, width, height, SwpNoZOrder | SwpNoActivate);
         }
         else
         {
-            WindowsInterop.SetWindowPos(_hwnd, HwndBottom, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+            // No usable shell host: stay a top-level window pinned to the bottom of
+            // the z-order (WndProc keeps it there). Desktop icons end up covered.
+            s_bottomPinned.Add(_hwnd);
+            WindowsInterop.SetWindowPos(_hwnd, HwndBottom, x, y, width, height, SwpNoActivate);
         }
-
-        WindowsInterop.SetWindowPos(
-            _hwnd, IntPtr.Zero, x - originX, y - originY, width, height, SwpNoZOrder | SwpNoActivate);
     }
 
     private static IntPtr FindWallpaperHost()
     {
         var progman = WindowsInterop.FindWindowW("Progman", null);
         if (progman == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        // Since Windows 11 24H2 the desktop keeps SHELLDLL_DefView directly under
+        // Progman, and builds 26120+ no longer composite foreign windows parented
+        // anywhere into that tree — they render but never reach the screen.
+        if (Environment.OSVersion.Version.Build >= 26120 &&
+            WindowsInterop.FindWindowExW(progman, IntPtr.Zero, "SHELLDLL_DefView", null) != IntPtr.Zero)
         {
             return IntPtr.Zero;
         }
@@ -336,6 +352,14 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
 
             case WmEraseBackground:
                 return new IntPtr(1);
+
+            case WmWindowPosChanging when s_bottomPinned.Contains(hwnd):
+            {
+                var pos = (WindowsInterop.WindowPos*)lParam;
+                pos->InsertAfter = HwndBottom;
+                pos->Flags &= ~SwpNoZOrder;
+                return IntPtr.Zero;
+            }
 
             case WmClose:
                 WindowsInterop.ShowWindow(hwnd, SwHide);

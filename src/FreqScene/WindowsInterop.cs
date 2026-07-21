@@ -22,6 +22,18 @@ internal static unsafe partial class WindowsInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct WindowPos
+    {
+        public IntPtr Hwnd;
+        public IntPtr InsertAfter;
+        public int X;
+        public int Y;
+        public int Width;
+        public int Height;
+        public uint Flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct WndClassExW
     {
         public uint Size;
