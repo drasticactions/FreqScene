@@ -19,6 +19,21 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
     [ObservableProperty]
     private string _status = string.Empty;
 
+    [ObservableProperty]
+    private bool _isImporting;
+
+    [ObservableProperty]
+    private string _importStatus = string.Empty;
+
+    [ObservableProperty]
+    private double _importValue;
+
+    [ObservableProperty]
+    private double _importMaximum;
+
+    [ObservableProperty]
+    private bool _importIndeterminate = true;
+
     public PlaylistEditorViewModel(VisualizerCoordinator coordinator)
     {
         _coordinator = coordinator;
@@ -29,6 +44,9 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
 
     /// <summary>True when the list is unfiltered, so reordering maps 1:1 to the playlist.</summary>
     public bool CanReorder => string.IsNullOrWhiteSpace(SearchText);
+
+    /// <summary>Texture search directories, for the Textures tab.</summary>
+    public IEnumerable TextureFolders => _coordinator.TextureFolders;
 
     public bool Shuffle
     {
@@ -82,6 +100,27 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
             }
         }
     }
+
+    public void BeginImport()
+    {
+        IsImporting = true;
+        ImportIndeterminate = true;
+        ImportStatus = "Scanning…";
+        ImportValue = 0;
+        ImportMaximum = 0;
+    }
+
+    public void ReportImport(ImportProgress progress)
+    {
+        ImportIndeterminate = progress.Total <= 0;
+        ImportMaximum = progress.Total;
+        ImportValue = progress.Current;
+        ImportStatus = progress.Total > 0
+            ? $"{progress.Phase} {progress.Current:N0} / {progress.Total:N0}"
+            : $"{progress.Phase} {progress.Current:N0}";
+    }
+
+    public void EndImport() => IsImporting = false;
 
     public void Dispose() => _coordinator.Presets.CollectionChanged -= OnPresetsChanged;
 

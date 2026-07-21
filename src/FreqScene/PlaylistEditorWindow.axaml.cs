@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -10,12 +11,12 @@ namespace FreqScene;
 
 public partial class PlaylistEditorWindow : Window
 {
-    /// <summary>In-process format used for dragging a row within the grid.</summary>
     private static readonly DataFormat<PresetEntry> ReorderFormat =
         DataFormat.CreateInProcessFormat<PresetEntry>("freqscene-preset");
 
     private readonly VisualizerCoordinator _coordinator;
     private readonly PlaylistEditorViewModel _viewModel;
+    private CancellationTokenSource? _importCts;
     private PointerPressedEventArgs? _dragTrigger;
     private PresetEntry? _dragCandidate;
     private Point _dragOrigin;
@@ -55,6 +56,7 @@ public partial class PlaylistEditorWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _importCts?.Cancel();
         _coordinator.CurrentIndexChanged -= OnCurrentIndexChanged;
         _viewModel.Dispose();
         base.OnClosed(e);
@@ -80,7 +82,7 @@ public partial class PlaylistEditorWindow : Window
             ],
         });
 
-        AddPaths(files);
+        await ImportItemsAsync(files);
     }
 
     private async void OnAddFolder(object? sender, RoutedEventArgs e)
@@ -91,12 +93,38 @@ public partial class PlaylistEditorWindow : Window
             AllowMultiple = true,
         });
 
-        AddPaths(folders);
+        await ImportItemsAsync(folders);
     }
 
     private void OnRemoveSelected(object? sender, RoutedEventArgs e) => RemoveSelected();
 
     private void OnClear(object? sender, RoutedEventArgs e) => _coordinator.ClearPresets();
+
+    private async void OnAddTextureFolder(object? sender, RoutedEventArgs e)
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Add texture folder",
+            AllowMultiple = true,
+        });
+
+        var paths = folders.Select(f => f.TryGetLocalPath()).OfType<string>().ToList();
+        if (paths.Count > 0)
+        {
+            _coordinator.AddTextureFolders(paths);
+        }
+    }
+
+    private void OnRemoveTexture(object? sender, RoutedEventArgs e)
+    {
+        var indices = (TextureList.SelectedItems ?? Array.Empty<object>())
+            .OfType<TextureFolderEntry>()
+            .Select(entry => _coordinator.TextureFolders.IndexOf(entry))
+            .ToList();
+        _coordinator.RemoveTextureFolders(indices);
+    }
+
+    private void OnClearTextures(object? sender, RoutedEventArgs e) => _coordinator.ClearTextureFolders();
 
     private void OnSortByName(object? sender, RoutedEventArgs e) =>
         _coordinator.SortBy((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
@@ -177,14 +205,34 @@ public partial class PlaylistEditorWindow : Window
         }
     }
 
-    private void AddPaths(IEnumerable<IStorageItem> items)
+    private async Task ImportItemsAsync(IEnumerable<IStorageItem> items)
     {
         var paths = items.Select(i => i.TryGetLocalPath()).OfType<string>().ToList();
-        if (paths.Count > 0)
+        if (paths.Count == 0 || _viewModel.IsImporting)
         {
-            _coordinator.AddPaths(paths);
+            return;
+        }
+
+        using var cts = new CancellationTokenSource();
+        _importCts = cts;
+        _viewModel.BeginImport();
+        var progress = new Progress<ImportProgress>(_viewModel.ReportImport);
+        try
+        {
+            await _coordinator.AddPathsAsync(paths, progress, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled by the user; presets added before cancellation are kept.
+        }
+        finally
+        {
+            _importCts = null;
+            _viewModel.EndImport();
         }
     }
+
+    private void OnCancelImport(object? sender, RoutedEventArgs e) => _importCts?.Cancel();
 
     private void RemoveSelected()
     {
@@ -243,7 +291,14 @@ public partial class PlaylistEditorWindow : Window
         item.Set(ReorderFormat, entry);
         using var data = new DataTransfer();
         data.Add(item);
-        await DragDrop.DoDragDropAsync(trigger, data, DragDropEffects.Move);
+        try
+        {
+            await DragDrop.DoDragDropAsync(trigger, data, DragDropEffects.Move);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"Playlist reorder drag failed: {ex}");
+        }
     }
 
     private void OnDragOver(object? sender, DragEventArgs e)
@@ -269,7 +324,7 @@ public partial class PlaylistEditorWindow : Window
         }
         else if (e.DataTransfer.TryGetFiles() is { } files)
         {
-            AddPaths(files);
+            _ = ImportItemsAsync(files);
         }
 
         e.Handled = true;

@@ -5,9 +5,10 @@
         x:DataType="local:PlaylistEditorViewModel"
         Width="820" Height="560"
         Title="FreqScene — Playlist">
+    <Panel>
+    <TabControl Margin="4">
+    <TabItem Header="Playlist">
     <DockPanel Margin="8">
-
-        <!-- Toolbar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
             <TextBox Width="200"
                      PlaceholderText="Search"
@@ -23,8 +24,6 @@
             <Button Content="▲" ToolTip.Tip="Move up (Alt+Up)" Click="OnMoveUp" />
             <Button Content="▼" ToolTip.Tip="Move down (Alt+Down)" Click="OnMoveDown" />
         </StackPanel>
-
-        <!-- Playback controls -->
         <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="0,8,0,0">
             <Button Grid.Column="0" Content="◀ Prev" Click="OnPrevious" />
             <Button Grid.Column="1" Content="Next ▶" Margin="6,0,0,0" Click="OnNext" />
@@ -52,8 +51,6 @@
             <TextBlock Grid.Column="7" Text="{Binding Status}"
                        VerticalAlignment="Center" Opacity="0.7" />
         </Grid>
-
-        <!-- Playlist -->
         <DataGrid x:Name="PlaylistGrid"
                   ItemsSource="{Binding Items}"
                   IsReadOnly="True"
@@ -99,4 +96,48 @@
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>
+    </TabItem>
+
+    <TabItem Header="Textures">
+    <DockPanel Margin="8">
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+            <Button Content="Add Folder…" Click="OnAddTextureFolder" />
+            <Button Content="Remove" Click="OnRemoveTexture" />
+            <Button Content="Clear" Click="OnClearTextures" />
+        </StackPanel>
+
+        <ListBox x:Name="TextureList"
+                 ItemsSource="{Binding TextureFolders}"
+                 SelectionMode="Multiple">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:TextureFolderEntry">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Name}" />
+                        <TextBlock Text="{Binding FullPath}" Opacity="0.6" FontSize="11" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+    </TabItem>
+    </TabControl>
+    <Border IsVisible="{Binding IsImporting}" Background="#99000000">
+        <Border Background="{DynamicResource ThemeBackgroundBrush}"
+                BorderBrush="{DynamicResource ThemeBorderMidBrush}"
+                BorderThickness="1"
+                CornerRadius="6" Padding="24" MinWidth="380"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Importing presets" FontWeight="Bold" />
+                <TextBlock Text="{Binding ImportStatus}" Opacity="0.8" />
+                <ProgressBar Minimum="0"
+                             Maximum="{Binding ImportMaximum}"
+                             Value="{Binding ImportValue}"
+                             IsIndeterminate="{Binding ImportIndeterminate}" />
+                <Button Content="Cancel" HorizontalAlignment="Right" Click="OnCancelImport" />
+            </StackPanel>
+        </Border>
+    </Border>
+    </Panel>
 </Window>

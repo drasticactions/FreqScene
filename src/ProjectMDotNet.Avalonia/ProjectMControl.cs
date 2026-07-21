@@ -43,6 +43,7 @@ public class ProjectMControl : OpenGlControlBase
 
     private readonly PcmBuffer _pcmBuffer = new();
     private readonly ConcurrentQueue<Action> _glActions = new();
+    private IReadOnlyList<string> _textureSearchPaths = [];
     private ProjectM? _instance;
     private ProjectMPlaylist? _playlist;
     private TransparencyCompositor? _compositor;
@@ -154,6 +155,15 @@ public class ProjectMControl : OpenGlControlBase
 
         _playlist = new ProjectMPlaylist(_instance);
         return _playlist;
+    }
+
+    public void ApplyTextureSearchPaths(IReadOnlyList<string> paths)
+    {
+        _textureSearchPaths = paths ?? [];
+        if (_instance is { } instance)
+        {
+            RunWithGlContext(() => instance.SetTextureSearchPaths(_textureSearchPaths));
+        }
     }
 
     /// <inheritdoc />
@@ -367,6 +377,11 @@ public class ProjectMControl : OpenGlControlBase
         instance.HardCutEnabled = HardCutEnabled;
         instance.PresetLocked = PresetLocked;
         instance.AspectCorrection = true;
+
+        if (_textureSearchPaths.Count > 0)
+        {
+            instance.SetTextureSearchPaths(_textureSearchPaths);
+        }
     }
 
     private (int Width, int Height) GetPixelSize()

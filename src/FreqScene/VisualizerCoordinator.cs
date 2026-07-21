@@ -14,6 +14,7 @@ public sealed class VisualizerCoordinator : IDisposable
     private readonly SyntheticAudioSource _synthetic;
     private readonly HashSet<ProjectMControl> _wired = [];
     private readonly HashSet<string> _paths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _textureFolders = new(StringComparer.OrdinalIgnoreCase);
     private CaptureAudioSource? _capture;
     private ProjectMControl? _control;
     private volatile float _gain = 1.0f;
@@ -40,6 +41,14 @@ public sealed class VisualizerCoordinator : IDisposable
             if (_paths.Add(entry))
             {
                 Presets.Add(new PresetEntry(entry));
+            }
+        }
+
+        foreach (var folder in state.TextureFolders.Where(Directory.Exists))
+        {
+            if (_textureFolders.Add(folder))
+            {
+                TextureFolders.Add(new TextureFolderEntry(folder));
             }
         }
 
@@ -78,7 +87,9 @@ public sealed class VisualizerCoordinator : IDisposable
     /// <summary>Status text for UIs. May fire on any thread.</summary>
     public event Action<string>? StatusChanged;
 
-    public ObservableCollection<PresetEntry> Presets { get; } = [];
+    public RangeObservableCollection<PresetEntry> Presets { get; } = [];
+
+    public ObservableCollection<TextureFolderEntry> TextureFolders { get; } = [];
 
     public event Action<int>? CurrentIndexChanged;
 
@@ -179,32 +190,114 @@ public sealed class VisualizerCoordinator : IDisposable
 
     public int AddPaths(IEnumerable<string> paths)
     {
+        var raw = paths as IReadOnlyList<string> ?? paths.ToList();
+
+        AddTextureFolders(DetectTextureFolders(raw));
+
         var added = 0;
-        foreach (var file in Expand(paths))
+        foreach (var file in Expand(raw))
         {
-            if (!_paths.Add(file))
+            if (AddPresetFile(file))
             {
-                continue;
-            }
-
-            Presets.Add(new PresetEntry(file));
-            _control?.Playlist?.AddPreset(file, allowDuplicates: true);
-            added++;
-        }
-
-        if (added > 0)
-        {
-            Renumber();
-            Save();
-
-            // Adding to an idle visualizer should start playing, not wait for a switch.
-            if (_current is null)
-            {
-                PlayAt(0);
+                added++;
             }
         }
 
+        FinalizeAdd(added);
         return added;
+    }
+
+    public async Task<int> AddPathsAsync(
+        IEnumerable<string> paths,
+        IProgress<ImportProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var raw = paths as IReadOnlyList<string> ?? paths.ToList();
+
+        var existing = new HashSet<string>(_paths, StringComparer.OrdinalIgnoreCase);
+
+        var (textureFolders, files) = await Task.Run(() =>
+        {
+            var textures = DetectTextureFolders(raw).ToList();
+            var found = new List<string>();
+            foreach (var file in Expand(raw))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (existing.Add(file))
+                {
+                    found.Add(file);
+                    if ((found.Count & 0x3FF) == 0)
+                    {
+                        progress?.Report(new ImportProgress("Scanning presets…", found.Count, 0));
+                    }
+                }
+            }
+
+            return (textures, found);
+        }, cancellationToken);
+
+        AddTextureFolders(textureFolders);
+
+        var entries = new List<PresetEntry>(files.Count);
+        try
+        {
+            for (var i = 0; i < files.Count; i++)
+            {
+                var file = files[i];
+                if (!_paths.Add(file))
+                {
+                    continue;
+                }
+
+                entries.Add(new PresetEntry(file));
+                _control?.Playlist?.AddPreset(file, allowDuplicates: true);
+
+                if ((i & 0x3FF) == 0x3FF)
+                {
+                    progress?.Report(new ImportProgress("Adding presets…", i + 1, files.Count));
+
+                    await Task.Yield();
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+            }
+        }
+        finally
+        {
+            Presets.AddRange(entries);
+            FinalizeAdd(entries.Count);
+        }
+
+        progress?.Report(new ImportProgress("Adding presets…", files.Count, files.Count));
+        return entries.Count;
+    }
+
+    private bool AddPresetFile(string file)
+    {
+        if (!_paths.Add(file))
+        {
+            return false;
+        }
+
+        Presets.Add(new PresetEntry(file));
+        _control?.Playlist?.AddPreset(file, allowDuplicates: true);
+        return true;
+    }
+
+    private void FinalizeAdd(int added)
+    {
+        if (added <= 0)
+        {
+            return;
+        }
+
+        Renumber();
+        Save();
+
+        // Adding to an idle visualizer should start playing, not wait for a switch.
+        if (_current is null)
+        {
+            PlayAt(0);
+        }
     }
 
     public void RemoveAt(IEnumerable<int> indices)
@@ -276,6 +369,64 @@ public sealed class VisualizerCoordinator : IDisposable
         Save();
     }
 
+    public int AddTextureFolders(IEnumerable<string> folders)
+    {
+        var added = 0;
+        foreach (var folder in folders)
+        {
+            if (!Directory.Exists(folder) || !_textureFolders.Add(folder))
+            {
+                continue;
+            }
+
+            TextureFolders.Add(new TextureFolderEntry(folder));
+            added++;
+        }
+
+        if (added > 0)
+        {
+            ApplyTextureSearchPaths(reloadCurrent: true);
+            Save();
+        }
+
+        return added;
+    }
+
+    public void RemoveTextureFolders(IEnumerable<int> indices)
+    {
+        var removed = false;
+        foreach (var index in indices.Distinct().OrderDescending())
+        {
+            if (index < 0 || index >= TextureFolders.Count)
+            {
+                continue;
+            }
+
+            _textureFolders.Remove(TextureFolders[index].FullPath);
+            TextureFolders.RemoveAt(index);
+            removed = true;
+        }
+
+        if (removed)
+        {
+            ApplyTextureSearchPaths(reloadCurrent: true);
+            Save();
+        }
+    }
+
+    public void ClearTextureFolders()
+    {
+        if (TextureFolders.Count == 0)
+        {
+            return;
+        }
+
+        TextureFolders.Clear();
+        _textureFolders.Clear();
+        ApplyTextureSearchPaths(reloadCurrent: true);
+        Save();
+    }
+
     public void PlayAt(int index)
     {
         if (index >= 0 && index < Presets.Count)
@@ -339,6 +490,8 @@ public sealed class VisualizerCoordinator : IDisposable
             StatusChanged?.Invoke($"failed: {e.PresetFilename} — {e.Message}");
 
         playlist.Shuffle = _shuffle;
+
+        ApplyTextureSearchPaths(reloadCurrent: false);
         RebuildNativePlaylist();
     }
 
@@ -381,6 +534,83 @@ public sealed class VisualizerCoordinator : IDisposable
             {
                 yield return path;
             }
+        }
+    }
+
+    private static IEnumerable<string> DetectTextureFolders(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            if (!Directory.Exists(path))
+            {
+                continue;
+            }
+
+            foreach (var container in new[] { path, Path.GetDirectoryName(path) })
+            {
+                if (string.IsNullOrEmpty(container) || !Directory.Exists(container))
+                {
+                    continue;
+                }
+
+                foreach (var sub in Directory.EnumerateDirectories(container))
+                {
+                    if (string.Equals(Path.GetFileName(sub), "textures", StringComparison.OrdinalIgnoreCase))
+                    {
+                        yield return sub;
+                    }
+                }
+            }
+        }
+    }
+
+    private List<string> ExpandTexturePaths()
+    {
+        var expanded = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in _textureFolders)
+        {
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            if (seen.Add(root))
+            {
+                expanded.Add(root);
+            }
+
+            try
+            {
+                foreach (var sub in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
+                {
+                    if (seen.Add(sub))
+                    {
+                        expanded.Add(sub);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A folder that becomes unreadable mid-enumeration just contributes fewer paths.
+            }
+        }
+
+        return expanded;
+    }
+
+    private void ApplyTextureSearchPaths(bool reloadCurrent)
+    {
+        if (_control is not { } control)
+        {
+            return;
+        }
+
+        control.ApplyTextureSearchPaths(ExpandTexturePaths());
+
+        if (reloadCurrent && control.Playlist is { Count: > 0 } playlist)
+        {
+            playlist.SetPosition(playlist.Position, hardCut: true);
         }
     }
 
@@ -427,6 +657,7 @@ public sealed class VisualizerCoordinator : IDisposable
         PlaylistStore.Save(new PlaylistState
         {
             Presets = Presets.Select(p => p.FullPath).ToList(),
+            TextureFolders = TextureFolders.Select(t => t.FullPath).ToList(),
             Shuffle = _shuffle,
             PresetLocked = _presetLocked,
             PresetDuration = _presetDuration,
