@@ -4,8 +4,22 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # Skip a build when a push touches ONLY these (docs, non-code). Any other
+    # changed path — source, csproj, native/pack scripts, this workflow — builds.
+    # Note: paths-ignore does not apply to tag pushes (v* always builds a release)
+    # or to workflow_dispatch (manual runs always build).
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE.txt'
+      - '.gitignore'
+      - '.gitattributes'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE.txt'
+      - '.gitignore'
+      - '.gitattributes'
   workflow_dispatch:
 
 # Cancel superseded runs on the same branch/PR (but let tag builds finish).
