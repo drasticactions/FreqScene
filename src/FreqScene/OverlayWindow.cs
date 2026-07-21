@@ -28,7 +28,15 @@ public class OverlayWindow : Window
             TransparentBackground = true,
             IsHitTestVisible = false,
         };
-        Content = _visualizer;
+        var scaleHost = new RenderScaleHost
+        {
+            Child = _visualizer,
+            RenderScale = coordinator.RenderScalePercent / 100.0,
+            IsHitTestVisible = false,
+        };
+        Content = scaleHost;
+        Action<int> onRenderScaleChanged = percent => scaleHost.RenderScale = percent / 100.0;
+        coordinator.RenderScaleChanged += onRenderScaleChanged;
         ApplyBackgroundMode();
         coordinator.AttachControl(_visualizer);
 
@@ -50,6 +58,7 @@ public class OverlayWindow : Window
         };
         Closed += (_, _) =>
         {
+            _coordinator.RenderScaleChanged -= onRenderScaleChanged;
             _coordinator.DetachControl(_visualizer);
             if (_wallpaper)
             {

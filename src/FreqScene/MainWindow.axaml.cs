@@ -20,6 +20,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         coordinator.AttachControl(Visualizer);
 
+        ScaleHost.RenderScale = coordinator.RenderScalePercent / 100.0;
+        Action<int> onRenderScaleChanged = percent => ScaleHost.RenderScale = percent / 100.0;
+        coordinator.RenderScaleChanged += onRenderScaleChanged;
+        Closed += (_, _) => coordinator.RenderScaleChanged -= onRenderScaleChanged;
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             Activated += OnActivated;

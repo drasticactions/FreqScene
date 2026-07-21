@@ -12,6 +12,9 @@ namespace FreqScene;
 public partial class App : Application
 {
     private readonly List<(DisplayMode Mode, NativeMenuItem Item)> _modeItems = [];
+    private readonly List<(int Percent, NativeMenuItem Item)> _resolutionItems = [];
+    private readonly List<(int Cap, NativeMenuItem Item)> _frameRateItems = [];
+    private AppSettings _settings = new();
     private NativeMenu? _audioMenu;
     private VisualizerCoordinator? _coordinator;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
@@ -34,7 +37,12 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             desktop.Exit += (_, _) => _coordinator?.Dispose();
             _coordinator = new VisualizerCoordinator();
-            _mode = DisplayModes.Normalize(SettingsStore.Load().DisplayMode);
+            _settings = SettingsStore.Load();
+            _settings.RenderScalePercent = QualityOptions.NormalizeRenderScale(_settings.RenderScalePercent);
+            _settings.FrameRateCap = QualityOptions.NormalizeFrameRate(_settings.FrameRateCap);
+            _mode = DisplayModes.Normalize(_settings.DisplayMode);
+            _coordinator.RenderScalePercent = _settings.RenderScalePercent;
+            _coordinator.FrameRateCap = _settings.FrameRateCap;
 
             SetupTrayIcon(desktop);
             ApplyMode(_mode, persist: false);
@@ -81,7 +89,8 @@ public partial class App : Application
 
         if (persist)
         {
-            SettingsStore.Save(new AppSettings { DisplayMode = mode });
+            _settings.DisplayMode = mode;
+            SettingsStore.Save(_settings);
         }
     }
 
@@ -127,6 +136,8 @@ public partial class App : Application
             menu.Items.Add(BuildDisplayModeItem());
         }
 
+        menu.Items.Add(BuildResolutionItem());
+        menu.Items.Add(BuildFrameRateItem());
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(quitItem);
 
@@ -164,6 +175,78 @@ public partial class App : Application
         }
 
         return new NativeMenuItem("Display Mode") { Menu = modeMenu };
+    }
+
+    private NativeMenuItem BuildResolutionItem()
+    {
+        var menu = new NativeMenu();
+        foreach (var percent in QualityOptions.RenderScalePercents)
+        {
+            var item = new NativeMenuItem($"{percent}%")
+            {
+                ToggleType = MenuItemToggleType.Radio,
+                IsChecked = percent == _settings.RenderScalePercent,
+            };
+            var target = percent;
+            item.Click += (_, _) => Dispatcher.UIThread.Post(() => ApplyRenderScale(target));
+            menu.Items.Add(item);
+            _resolutionItems.Add((percent, item));
+        }
+
+        return new NativeMenuItem("Resolution") { Menu = menu };
+    }
+
+    private NativeMenuItem BuildFrameRateItem()
+    {
+        var menu = new NativeMenu();
+        foreach (var cap in QualityOptions.FrameRateCaps)
+        {
+            var item = new NativeMenuItem(QualityOptions.FrameRateLabel(cap))
+            {
+                ToggleType = MenuItemToggleType.Radio,
+                IsChecked = cap == _settings.FrameRateCap,
+            };
+            var target = cap;
+            item.Click += (_, _) => Dispatcher.UIThread.Post(() => ApplyFrameRateCap(target));
+            menu.Items.Add(item);
+            _frameRateItems.Add((cap, item));
+        }
+
+        return new NativeMenuItem("Frame Rate") { Menu = menu };
+    }
+
+    private void ApplyRenderScale(int percent)
+    {
+        percent = QualityOptions.NormalizeRenderScale(percent);
+        _settings.RenderScalePercent = percent;
+        if (_coordinator is not null)
+        {
+            _coordinator.RenderScalePercent = percent;
+        }
+
+        foreach (var (itemPercent, item) in _resolutionItems)
+        {
+            item.IsChecked = itemPercent == percent;
+        }
+
+        SettingsStore.Save(_settings);
+    }
+
+    private void ApplyFrameRateCap(int cap)
+    {
+        cap = QualityOptions.NormalizeFrameRate(cap);
+        _settings.FrameRateCap = cap;
+        if (_coordinator is not null)
+        {
+            _coordinator.FrameRateCap = cap;
+        }
+
+        foreach (var (itemCap, item) in _frameRateItems)
+        {
+            item.IsChecked = itemCap == cap;
+        }
+
+        SettingsStore.Save(_settings);
     }
 
     private void ShowPlaylistEditor()

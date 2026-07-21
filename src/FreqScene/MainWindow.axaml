@@ -5,5 +5,7 @@
         Width="640" Height="640"
         WindowDecorations="None"
         Title="FreqScene">
-    <projectm:ProjectMControl x:Name="Visualizer" />
+    <projectm:RenderScaleHost x:Name="ScaleHost">
+        <projectm:ProjectMControl x:Name="Visualizer" />
+    </projectm:RenderScaleHost>
 </Window>

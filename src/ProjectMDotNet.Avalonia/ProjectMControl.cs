@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
+using Avalonia.Threading;
 
 namespace ProjectMDotNet.Avalonia;
 
@@ -35,6 +36,9 @@ public class ProjectMControl : OpenGlControlBase
     public static readonly StyledProperty<bool> PresetLockedProperty =
         AvaloniaProperty.Register<ProjectMControl, bool>(nameof(PresetLocked), defaultValue: false);
 
+    public static readonly StyledProperty<double> MaxFrameRateProperty =
+        AvaloniaProperty.Register<ProjectMControl, double>(nameof(MaxFrameRate), defaultValue: 0.0);
+
     /// <summary>
     /// When true, the visualization's black background is composited as transparency.
     /// </summary>
@@ -49,6 +53,7 @@ public class ProjectMControl : OpenGlControlBase
     private TransparencyCompositor? _compositor;
     private bool _compositorFailureLogged;
     private (int Width, int Height) _lastWindowSize;
+    private long _nextFrameDue;
 
     /// <summary>The native visualizer instance; non-null after <see cref="InstanceCreated"/> and until GL teardown.</summary>
     public ProjectM? Instance => _instance;
@@ -108,6 +113,13 @@ public class ProjectMControl : OpenGlControlBase
     {
         get => GetValue(PresetLockedProperty);
         set => SetValue(PresetLockedProperty, value);
+    }
+
+    /// <inheritdoc cref="MaxFrameRateProperty"/>
+    public double MaxFrameRate
+    {
+        get => GetValue(MaxFrameRateProperty);
+        set => SetValue(MaxFrameRateProperty, value);
     }
 
     /// <inheritdoc cref="TransparentBackgroundProperty"/>
@@ -291,8 +303,37 @@ public class ProjectMControl : OpenGlControlBase
 
         if (IsRendering)
         {
-            RequestNextFrameRendering();
+            ScheduleNextFrame();
         }
+    }
+
+    private void ScheduleNextFrame()
+    {
+        var maxFrameRate = MaxFrameRate;
+        if (maxFrameRate <= 0)
+        {
+            RequestNextFrameRendering();
+            return;
+        }
+
+        var now = Stopwatch.GetTimestamp();
+        var interval = (long)(Stopwatch.Frequency / maxFrameRate);
+        _nextFrameDue = Math.Max(_nextFrameDue + interval, now);
+
+        var delay = TimeSpan.FromSeconds((_nextFrameDue - now) / (double)Stopwatch.Frequency);
+        if (delay < TimeSpan.FromMilliseconds(1))
+        {
+            RequestNextFrameRendering();
+            return;
+        }
+
+        DispatcherTimer.RunOnce(() =>
+        {
+            if (IsRendering)
+            {
+                RequestNextFrameRendering();
+            }
+        }, delay);
     }
 
     /// <inheritdoc />
@@ -336,6 +377,17 @@ public class ProjectMControl : OpenGlControlBase
         if (change.Property == IsRenderingProperty)
         {
             if (change.GetNewValue<bool>())
+            {
+                RequestNextFrameRendering();
+            }
+
+            return;
+        }
+
+        if (change.Property == MaxFrameRateProperty)
+        {
+            _nextFrameDue = 0;
+            if (IsRendering)
             {
                 RequestNextFrameRendering();
             }

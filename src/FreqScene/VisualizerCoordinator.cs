@@ -22,6 +22,8 @@ public sealed class VisualizerCoordinator : IDisposable
     private bool _shuffle;
     private bool _presetLocked;
     private double _presetDuration = 30;
+    private int _renderScalePercent = QualityOptions.DefaultRenderScalePercent;
+    private int _frameRateCap = QualityOptions.DefaultFrameRateCap;
     private PresetEntry? _current;
     private int _currentIndex = -1;
     private bool _loaded;
@@ -154,6 +156,31 @@ public sealed class VisualizerCoordinator : IDisposable
         }
     }
 
+    public int RenderScalePercent
+    {
+        get => _renderScalePercent;
+        set
+        {
+            _renderScalePercent = value;
+            RenderScaleChanged?.Invoke(value);
+        }
+    }
+
+    public event Action<int>? RenderScaleChanged;
+
+    public int FrameRateCap
+    {
+        get => _frameRateCap;
+        set
+        {
+            _frameRateCap = value;
+            if (_control is { } control)
+            {
+                control.MaxFrameRate = value;
+            }
+        }
+    }
+
     /// <summary>
     /// Makes <paramref name="control"/> the active visualizer target and
     /// configures it.
@@ -163,6 +190,7 @@ public sealed class VisualizerCoordinator : IDisposable
         _control = control;
         control.PresetDuration = _presetDuration;
         control.PresetLocked = _presetLocked;
+        control.MaxFrameRate = _frameRateCap;
 
         if (_wired.Add(control))
         {
