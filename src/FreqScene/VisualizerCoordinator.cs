@@ -12,11 +12,11 @@ public sealed class VisualizerCoordinator : IDisposable
     public static readonly string[] PresetExtensions = [".milk", ".prjm"];
 
     private readonly SyntheticAudioSource _synthetic;
-    private readonly HashSet<ProjectMControl> _wired = [];
+    private readonly HashSet<IVisualizerHost> _wired = [];
     private readonly HashSet<string> _paths = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _textureFolders = new(StringComparer.OrdinalIgnoreCase);
     private CaptureAudioSource? _capture;
-    private ProjectMControl? _control;
+    private IVisualizerHost? _control;
     private volatile float _gain = 1.0f;
     private volatile bool _syntheticEnabled = true;
     private bool _shuffle;
@@ -185,7 +185,7 @@ public sealed class VisualizerCoordinator : IDisposable
     /// Makes <paramref name="control"/> the active visualizer target and
     /// configures it.
     /// </summary>
-    public void AttachControl(ProjectMControl control)
+    public void AttachControl(IVisualizerHost control)
     {
         _control = control;
         control.PresetDuration = _presetDuration;
@@ -204,7 +204,7 @@ public sealed class VisualizerCoordinator : IDisposable
     }
 
     /// <summary>Clears the active target if it is still <paramref name="control"/>.</summary>
-    public void DetachControl(ProjectMControl control)
+    public void DetachControl(IVisualizerHost control)
     {
         if (_control == control)
         {
@@ -506,7 +506,7 @@ public sealed class VisualizerCoordinator : IDisposable
         _capture = null;
     }
 
-    private void ConfigurePlaylist(ProjectMControl control)
+    private void ConfigurePlaylist(IVisualizerHost control)
     {
         var playlist = control.EnablePlaylist();
         playlist.PresetSwitched += (_, e) =>

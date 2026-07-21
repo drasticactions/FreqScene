@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace ProjectMDotNet.Avalonia;
+namespace ProjectMDotNet;
 
 /// <summary>
 /// Thread-safe buffer between audio producers (any thread) and the render

@@ -18,7 +18,7 @@ public partial class App : Application
     private NativeMenu? _audioMenu;
     private VisualizerCoordinator? _coordinator;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
-    private Window? _activeWindow;
+    private object? _activeWindow;
     private DisplayMode _mode = DisplayMode.Window;
     private PlaylistEditorWindow? _playlistWindow;
     private bool _quitting;
@@ -35,7 +35,11 @@ public partial class App : Application
         {
             _desktop = desktop;
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            desktop.Exit += (_, _) => _coordinator?.Dispose();
+            desktop.Exit += (_, _) =>
+            {
+                (_activeWindow as MacVisualizerWindow)?.Close();
+                _coordinator?.Dispose();
+            };
             _coordinator = new VisualizerCoordinator();
             _settings = SettingsStore.Load();
             _settings.RenderScalePercent = QualityOptions.NormalizeRenderScale(_settings.RenderScalePercent);
@@ -61,7 +65,7 @@ public partial class App : Application
         mode = DisplayModes.Normalize(mode);
         _mode = mode;
 
-        if (_activeWindow is { } previous)
+        if (_activeWindow is Window previous)
         {
             _switchingMode = true;
             try
@@ -73,14 +77,27 @@ public partial class App : Application
                 _switchingMode = false;
             }
         }
+        else if (_activeWindow is MacVisualizerWindow previousNative)
+        {
+            previousNative.Close();
+        }
 
-        Window window = mode == DisplayMode.Window
-            ? CreateMainWindow(_coordinator)
-            : new OverlayWindow(_coordinator, mode == DisplayMode.Wallpaper);
+        if (OperatingSystem.IsMacOS())
+        {
+            var native = new MacVisualizerWindow(_coordinator, mode);
+            _activeWindow = native;
+            native.Show();
+        }
+        else
+        {
+            Window window = mode == DisplayMode.Window
+                ? CreateMainWindow(_coordinator)
+                : new OverlayWindow(_coordinator, mode == DisplayMode.Wallpaper);
 
-        _activeWindow = window;
-        _desktop.MainWindow = window as MainWindow;
-        window.Show();
+            _activeWindow = window;
+            _desktop.MainWindow = window as MainWindow;
+            window.Show();
+        }
 
         foreach (var (itemMode, item) in _modeItems)
         {
@@ -153,6 +170,10 @@ public partial class App : Application
             {
                 window.Show();
                 window.Activate();
+            }
+            else if (_activeWindow is MacVisualizerWindow native && _mode == DisplayMode.Window)
+            {
+                native.Show();
             }
         };
         TrayIcon.SetIcons(this, [trayIcon]);

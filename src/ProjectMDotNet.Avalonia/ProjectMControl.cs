@@ -8,7 +8,7 @@ using Avalonia.Threading;
 
 namespace ProjectMDotNet.Avalonia;
 
-public class ProjectMControl : OpenGlControlBase
+public class ProjectMControl : OpenGlControlBase, IVisualizerHost
 {
     private const int GlFramebuffer = 0x8D40;
 

@@ -16,25 +16,31 @@ internal static partial class MacOverlay
 
     public static void ConfigureOverlay(Window window, bool wallpaper)
     {
-        if (GetNsWindow(window) is not { } nsWindow)
+        if (GetNsWindow(window) is { } nsWindow)
         {
-            return;
+            ConfigureOverlay(nsWindow, wallpaper);
         }
+    }
 
+    public static void ConfigureOverlay(IntPtr nsWindow, bool wallpaper)
+    {
         MsgSendBool(nsWindow, SelRegisterName("setIgnoresMouseEvents:"), true);
         MsgSendBool(nsWindow, SelRegisterName("setOpaque:"), false);
         MsgSendBool(nsWindow, SelRegisterName("setHasShadow:"), false);
         MsgSendULong(nsWindow, SelRegisterName("setCollectionBehavior:"), CollectionBehavior);
-        SetLevel(window, wallpaper);
+        SetLevel(nsWindow, wallpaper);
     }
 
     public static void SetLevel(Window window, bool wallpaper)
     {
-        if (GetNsWindow(window) is not { } nsWindow)
+        if (GetNsWindow(window) is { } nsWindow)
         {
-            return;
+            SetLevel(nsWindow, wallpaper);
         }
+    }
 
+    public static void SetLevel(IntPtr nsWindow, bool wallpaper)
+    {
         var level = wallpaper
             ? WindowLevelForKey(DesktopWindowLevelKey) + 1
             : WindowLevelForKey(FloatingWindowLevelKey);
