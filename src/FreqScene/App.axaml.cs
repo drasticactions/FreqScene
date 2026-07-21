@@ -82,17 +82,18 @@ public partial class App : Application
             previousNative.Close();
         }
 
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsWindows())
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
         {
             INativeVisualizerWindow native = OperatingSystem.IsMacOS()
                 ? new MacVisualizerWindow(_coordinator, mode)
-                : new WindowsVisualizerWindow(_coordinator, mode);
+                : OperatingSystem.IsWindows()
+                    ? new WindowsVisualizerWindow(_coordinator, mode)
+                    : new LinuxVisualizerWindow(_coordinator, mode);
             _activeWindow = native;
             native.Show();
         }
         else
         {
-            // Linux is window-only (see DisplayModes.Available).
             var window = CreateMainWindow(_coordinator);
             _activeWindow = window;
             _desktop.MainWindow = window;
