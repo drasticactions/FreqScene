@@ -1,6 +1,6 @@
 using System.Collections;
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace FreqScene;
@@ -8,7 +8,9 @@ namespace FreqScene;
 public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposable
 {
     private readonly VisualizerCoordinator _coordinator;
-    private readonly ObservableCollection<PresetEntry> _matches = [];
+
+    private readonly DispatcherTimer _filterTimer;
+    private int _matchCount;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -39,6 +41,8 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
         _coordinator = coordinator;
         _items = coordinator.Presets;
         coordinator.Presets.CollectionChanged += OnPresetsChanged;
+        _filterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _filterTimer.Tick += OnFilterTick;
         UpdateStatus();
     }
 
@@ -122,12 +126,25 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
 
     public void EndImport() => IsImporting = false;
 
-    public void Dispose() => _coordinator.Presets.CollectionChanged -= OnPresetsChanged;
+    public void Dispose()
+    {
+        _filterTimer.Stop();
+        _filterTimer.Tick -= OnFilterTick;
+        _coordinator.Presets.CollectionChanged -= OnPresetsChanged;
+    }
 
     partial void OnSearchTextChanged(string value)
     {
-        ApplyFilter();
         OnPropertyChanged(nameof(CanReorder));
+
+        _filterTimer.Stop();
+        _filterTimer.Start();
+    }
+
+    private void OnFilterTick(object? sender, EventArgs e)
+    {
+        _filterTimer.Stop();
+        ApplyFilter();
     }
 
     private void OnPresetsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -144,28 +161,31 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
     {
         if (CanReorder)
         {
-            _matches.Clear();
+            _matchCount = 0;
             Items = _coordinator.Presets;
+            UpdateStatus();
             return;
         }
 
         var term = SearchText.Trim();
-        _matches.Clear();
+
+        var matches = new List<PresetEntry>();
         foreach (var entry in _coordinator.Presets)
         {
             if (entry.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 entry.Directory.Contains(term, StringComparison.OrdinalIgnoreCase))
             {
-                _matches.Add(entry);
+                matches.Add(entry);
             }
         }
 
-        Items = _matches;
+        _matchCount = matches.Count;
+        Items = matches;
         UpdateStatus();
     }
 
     private void UpdateStatus() =>
         Status = CanReorder
             ? $"{_coordinator.Presets.Count}"
-            : $"{_matches.Count}/{_coordinator.Presets.Count}";
+            : $"{_matchCount}/{_coordinator.Presets.Count}";
 }

@@ -15,4 +15,6 @@ public sealed class PlaylistState
     public float Gain { get; set; } = 1.0f;
 
     public string? AudioSource { get; set; }
+
+    public string? CurrentPreset { get; set; }
 }

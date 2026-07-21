@@ -55,6 +55,13 @@ public sealed class VisualizerCoordinator : IDisposable
         }
 
         AddPaths(Environment.GetCommandLineArgs().Skip(1));
+
+        if (!string.IsNullOrEmpty(state.CurrentPreset))
+        {
+            _current = Presets.FirstOrDefault(
+                p => string.Equals(p.FullPath, state.CurrentPreset, StringComparison.OrdinalIgnoreCase));
+        }
+
         Renumber();
 
         var sources = new List<string> { SyntheticSourceName };
@@ -502,6 +509,7 @@ public sealed class VisualizerCoordinator : IDisposable
 
     public void Dispose()
     {
+        Save();
         _control = null;
         _synthetic.Dispose();
         _capture?.Dispose();
@@ -675,6 +683,7 @@ public sealed class VisualizerCoordinator : IDisposable
         }
 
         CurrentIndexChanged?.Invoke(index);
+        Save();
     }
 
     private void Save()
@@ -693,6 +702,7 @@ public sealed class VisualizerCoordinator : IDisposable
             PresetDuration = _presetDuration,
             Gain = _gain,
             AudioSource = _preferredAudioSource,
+            CurrentPreset = _current?.FullPath,
         });
     }
 
