@@ -16,6 +16,7 @@ public partial class App : Application
     private readonly List<(int Cap, NativeMenuItem Item)> _frameRateItems = [];
     private AppSettings _settings = new();
     private NativeMenu? _audioMenu;
+    private NativeMenu? _displayMenu;
     private NativeMenuItem? _wallpaperTransparencyItem;
     private VisualizerCoordinator? _coordinator;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
@@ -87,10 +88,10 @@ public partial class App : Application
         if (OperatingSystem.IsMacOS() || OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
         {
             INativeVisualizerWindow native = OperatingSystem.IsMacOS()
-                ? new MacVisualizerWindow(_coordinator, mode)
+                ? new MacVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
                 : OperatingSystem.IsWindows()
-                    ? new WindowsVisualizerWindow(_coordinator, mode)
-                    : new LinuxVisualizerWindow(_coordinator, mode);
+                    ? new WindowsVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
+                    : new LinuxVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay);
             _activeWindow = native;
             native.Show();
         }
@@ -106,6 +107,8 @@ public partial class App : Application
         {
             item.IsChecked = itemMode == mode;
         }
+
+        BuildDisplayMenu();
 
         if (persist)
         {
@@ -154,6 +157,8 @@ public partial class App : Application
         if (DisplayModes.Available.Count > 1)
         {
             menu.Items.Add(BuildDisplayModeItem());
+            _displayMenu = new NativeMenu();
+            menu.Items.Add(new NativeMenuItem("Display") { Menu = _displayMenu });
         }
 
         if (DisplayModes.Available.Contains(DisplayMode.Wallpaper))
@@ -204,6 +209,47 @@ public partial class App : Application
         }
 
         return new NativeMenuItem("Display Mode") { Menu = modeMenu };
+    }
+
+    private void BuildDisplayMenu()
+    {
+        if (_displayMenu is null)
+        {
+            return;
+        }
+
+        _displayMenu.Items.Clear();
+        var displays = DisplayTargets.List();
+        var selected = displays.FirstOrDefault(d => d.Key == _settings.PreferredDisplay)
+            ?? displays.FirstOrDefault(d => d.IsPrimary)
+            ?? displays.FirstOrDefault();
+        foreach (var display in displays)
+        {
+            var item = new NativeMenuItem(display.Label)
+            {
+                ToggleType = MenuItemToggleType.Radio,
+                IsChecked = display == selected,
+            };
+            var target = display.Key;
+            item.Click += (_, _) => Dispatcher.UIThread.Post(() => ApplyDisplayTarget(target));
+            _displayMenu.Items.Add(item);
+        }
+    }
+
+    private void ApplyDisplayTarget(string key)
+    {
+        _settings.PreferredDisplay = key;
+        SettingsStore.Save(_settings);
+
+        if (_mode is DisplayMode.Overlay or DisplayMode.Wallpaper)
+        {
+            // Recreating the window moves the visualizer; ApplyMode also re-ticks the menu.
+            ApplyMode(_mode, persist: false);
+        }
+        else
+        {
+            BuildDisplayMenu();
+        }
     }
 
     private NativeMenuItem BuildWallpaperTransparencyItem()

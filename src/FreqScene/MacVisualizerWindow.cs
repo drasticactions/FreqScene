@@ -20,7 +20,7 @@ internal sealed class MacVisualizerWindow : INativeVisualizerWindow
     private IntPtr _window;
     private bool _closed;
 
-    public MacVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode)
+    public MacVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey)
     {
         EnsureClasses();
         _coordinator = coordinator;
@@ -38,8 +38,7 @@ internal sealed class MacVisualizerWindow : INativeVisualizerWindow
         }
         else
         {
-            var bounds = MacInterop.DisplayBounds(MacInterop.MainDisplayId());
-            contentRect = new MacInterop.CgRect(0, 0, bounds.Size.Width, bounds.Size.Height);
+            contentRect = MacDisplays.ResolveFrame(displayKey);
             windowClass = MacInterop.GetClass("NSWindow");
             styleMask = 0;
         }

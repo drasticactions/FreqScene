@@ -17,12 +17,14 @@ internal sealed class LinuxWaylandSession : IDisposable
     private readonly WlDisplay _display;
     private readonly WlRegistry _registry;
 
+    private readonly List<OutputEntry> _outputs = [];
+
     private WlCompositor? _compositor;
     private XdgWmBase? _wmBase;
     private ZwlrLayerShellV1? _layerShell;
     private WlSeat? _seat;
     private WlPointer? _pointer;
-    private WlOutput? _output;
+    private OutputEntry? _selectedOutput;
     private WlSurface? _surface;
     private XdgSurface? _xdgSurface;
     private XdgToplevel? _toplevel;
@@ -50,7 +52,7 @@ internal sealed class LinuxWaylandSession : IDisposable
     private double _lastClickX;
     private double _lastClickY;
 
-    public LinuxWaylandSession(DisplayMode mode)
+    public LinuxWaylandSession(DisplayMode mode, string? outputKey)
     {
         _mode = mode;
         _display = WlDisplay.Connect();
@@ -68,6 +70,13 @@ internal sealed class LinuxWaylandSession : IDisposable
             if (_compositor is null)
             {
                 throw new InvalidOperationException("The Wayland compositor global is missing.");
+            }
+
+            _selectedOutput = _outputs.Find(o => o.Key == outputKey) ?? _outputs.FirstOrDefault();
+            if (_selectedOutput is not null)
+            {
+                _scale = _selectedOutput.Scale;
+                _refreshRate = _selectedOutput.RefreshRate;
             }
 
             if (mode == DisplayMode.Window)
@@ -137,6 +146,58 @@ internal sealed class LinuxWaylandSession : IDisposable
         catch
         {
             return false;
+        }
+    }
+
+    public static IReadOnlyList<DisplayInfo> ListOutputs()
+    {
+        try
+        {
+            using var display = WlDisplay.Connect();
+            var entries = new List<OutputEntry>();
+            using var registry = display.GetRegistry(new WlRegistry.Listener.Relay
+            {
+                OnGlobal = (reg, name, iface, version) =>
+                {
+                    if (iface != "wl_output")
+                    {
+                        return;
+                    }
+
+                    var entry = new OutputEntry { Index = entries.Count };
+                    entry.Output = WlOutput.Bind(reg, name, Math.Min(version, 4u), new WlOutput.Listener.Relay
+                    {
+                        OnMode = (_, flags, width, height, _) =>
+                        {
+                            if ((flags & WlOutput.ModeEnum.Current) != 0)
+                            {
+                                entry.Width = width;
+                                entry.Height = height;
+                            }
+                        },
+                        OnName = (_, outputName) => entry.Name = outputName,
+                    });
+                    entries.Add(entry);
+                },
+            });
+            display.Roundtrip();
+            display.Roundtrip();
+
+            var result = new List<DisplayInfo>(entries.Count);
+            foreach (var entry in entries)
+            {
+                var name = entry.Name ?? $"Output {entry.Index + 1}";
+                var label = entry.Width > 0 ? $"{name} ({entry.Width}×{entry.Height})" : name;
+                // Wayland has no primary-output concept; the first output is the fallback target.
+                result.Add(new DisplayInfo(entry.Key, label, entry.Index == 0));
+                entry.Output?.Dispose();
+            }
+
+            return result;
+        }
+        catch
+        {
+            return [];
         }
     }
 
@@ -211,8 +272,13 @@ internal sealed class LinuxWaylandSession : IDisposable
         _surface = null;
         _seat?.Dispose();
         _seat = null;
-        _output?.Dispose();
-        _output = null;
+        foreach (var output in _outputs)
+        {
+            output.Output?.Dispose();
+        }
+
+        _outputs.Clear();
+        _selectedOutput = null;
         _wmBase?.Dispose();
         _wmBase = null;
         _layerShell?.Dispose();
@@ -250,25 +316,43 @@ internal sealed class LinuxWaylandSession : IDisposable
                 });
                 break;
 
-            case "wl_output" when _output is null:
-                _output = WlOutput.Bind(registry, name, Math.Min(version, 3u), new WlOutput.Listener.Relay
+            case "wl_output":
+            {
+                var entry = new OutputEntry { Index = _outputs.Count };
+                entry.Output = WlOutput.Bind(registry, name, Math.Min(version, 4u), new WlOutput.Listener.Relay
                 {
-                    OnMode = (_, flags, _, _, refresh) =>
+                    OnMode = (_, flags, width, height, refresh) =>
                     {
-                        if ((flags & WlOutput.ModeEnum.Current) != 0 && refresh > 0)
+                        if ((flags & WlOutput.ModeEnum.Current) != 0)
                         {
-                            _refreshRate = refresh / 1000.0;
+                            entry.Width = width;
+                            entry.Height = height;
+                            if (refresh > 0)
+                            {
+                                entry.RefreshRate = refresh / 1000.0;
+                                if (entry == _selectedOutput)
+                                {
+                                    _refreshRate = entry.RefreshRate;
+                                }
+                            }
                         }
                     },
                     OnScale = (_, factor) =>
                     {
                         if (factor > 0)
                         {
-                            _scale = factor;
+                            entry.Scale = factor;
+                            if (entry == _selectedOutput)
+                            {
+                                _scale = factor;
+                            }
                         }
                     },
+                    OnName = (_, outputName) => entry.Name = outputName,
                 });
+                _outputs.Add(entry);
                 break;
+            }
         }
     }
 
@@ -321,7 +405,7 @@ internal sealed class LinuxWaylandSession : IDisposable
             ? ZwlrLayerShellV1.LayerEnum.Top
             : ZwlrLayerShellV1.LayerEnum.Background;
         _layerSurface = _layerShell.GetLayerSurface(
-            _surface, _output, layer, "freqscene", new ZwlrLayerSurfaceV1.Listener.Relay
+            _surface, _selectedOutput?.Output, layer, "freqscene", new ZwlrLayerSurfaceV1.Listener.Relay
             {
                 OnConfigure = (sender, serial, width, height) =>
                 {
@@ -460,6 +544,25 @@ internal sealed class LinuxWaylandSession : IDisposable
         }
 
         return false;
+    }
+
+    private sealed class OutputEntry
+    {
+        public WlOutput? Output { get; set; }
+
+        public int Index { get; init; }
+
+        public string? Name { get; set; }
+
+        public int Scale { get; set; } = 1;
+
+        public double RefreshRate { get; set; }
+
+        public int Width { get; set; }
+
+        public int Height { get; set; }
+
+        public string Key => Name ?? $"output-{Index}";
     }
 
     /// <summary>Hides the window-mode surface; the tray icon maps it again via <see cref="RequestShow"/>.</summary>

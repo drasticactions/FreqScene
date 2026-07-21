@@ -214,6 +214,11 @@ internal static unsafe partial class WindowsInterop
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool GetMonitorInfoW(IntPtr monitor, ref MonitorInfoExW info);
 
+    [LibraryImport(User32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool EnumDisplayMonitors(
+        IntPtr dc, IntPtr clip, delegate* unmanaged<IntPtr, IntPtr, IntPtr, IntPtr, int> callback, IntPtr data);
+
     [LibraryImport(User32, EntryPoint = "LoadCursorW")]
     public static partial IntPtr LoadCursorW(IntPtr instance, IntPtr cursorName);
 

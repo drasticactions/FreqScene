@@ -7,6 +7,7 @@ namespace FreqScene;
 internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
 {
     private readonly DisplayMode _mode;
+    private readonly string? _displayKey;
     private readonly bool _transparent;
     private readonly PcmBuffer _pcmBuffer = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _glActions = new();
@@ -30,9 +31,10 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
     private volatile bool _failed;
     private long _nextFrameDue;
 
-    public LinuxVisualizerHost(DisplayMode mode, bool wallpaperTransparency)
+    public LinuxVisualizerHost(DisplayMode mode, bool wallpaperTransparency, string? displayKey)
     {
         _mode = mode;
+        _displayKey = displayKey;
         _transparent = mode == DisplayMode.Overlay ||
             (mode == DisplayMode.Wallpaper && wallpaperTransparency);
     }
@@ -166,7 +168,7 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
     {
         try
         {
-            _session = new LinuxWaylandSession(_mode);
+            _session = new LinuxWaylandSession(_mode, _displayKey);
             CreateContext();
         }
         catch (Exception ex)

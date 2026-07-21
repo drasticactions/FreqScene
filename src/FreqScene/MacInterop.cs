@@ -85,6 +85,13 @@ internal static partial class MacInterop
     public static partial bool MsgSendBool(IntPtr receiver, IntPtr selector);
 
     [LibraryImport(LibObjC, EntryPoint = "objc_msgSend")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool MsgSendBool(IntPtr receiver, IntPtr selector, IntPtr arg);
+
+    [LibraryImport(LibObjC, EntryPoint = "objc_msgSend", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr MsgSendUtf8(IntPtr receiver, IntPtr selector, string arg);
+
+    [LibraryImport(LibObjC, EntryPoint = "objc_msgSend")]
     public static partial void MsgSendVoid(IntPtr receiver, IntPtr selector, CgRect rect, [MarshalAs(UnmanagedType.I1)] bool flag);
 
     [LibraryImport(LibObjC, EntryPoint = "objc_msgSend")]
@@ -118,6 +125,15 @@ internal static partial class MacInterop
 
     [LibraryImport(CoreGraphics, EntryPoint = "CGDisplayBounds")]
     public static partial CgRect DisplayBounds(uint display);
+
+    [LibraryImport(CoreGraphics, EntryPoint = "CGDisplayVendorNumber")]
+    public static partial uint DisplayVendorNumber(uint display);
+
+    [LibraryImport(CoreGraphics, EntryPoint = "CGDisplayModelNumber")]
+    public static partial uint DisplayModelNumber(uint display);
+
+    [LibraryImport(CoreGraphics, EntryPoint = "CGDisplaySerialNumber")]
+    public static partial uint DisplaySerialNumber(uint display);
 
     [LibraryImport(LibSystem, EntryPoint = "dlopen", StringMarshalling = StringMarshalling.Utf8)]
     public static partial IntPtr DlOpen(string path, int mode);

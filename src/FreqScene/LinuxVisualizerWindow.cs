@@ -7,10 +7,10 @@ internal sealed class LinuxVisualizerWindow : INativeVisualizerWindow
     private readonly Action<int> _onRenderScaleChanged;
     private bool _closed;
 
-    public LinuxVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode)
+    public LinuxVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey)
     {
         _coordinator = coordinator;
-        _host = new LinuxVisualizerHost(mode, coordinator.WallpaperTransparency)
+        _host = new LinuxVisualizerHost(mode, coordinator.WallpaperTransparency, displayKey)
         {
             RenderScale = coordinator.RenderScalePercent / 100.0,
         };

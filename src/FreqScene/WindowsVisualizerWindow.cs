@@ -66,10 +66,11 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
     private readonly WindowsVisualizerHost _host;
     private readonly Action<int> _onRenderScaleChanged;
     private readonly DisplayMode _mode;
+    private readonly WindowsInterop.Rect _bounds;
     private IntPtr _hwnd;
     private bool _closed;
 
-    public WindowsVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode)
+    public WindowsVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey)
     {
         EnsureClass();
         _coordinator = coordinator;
@@ -93,10 +94,11 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             exStyle = mode == DisplayMode.Overlay
                 ? WsExToolWindow | WsExNoActivate | WsExTopMost | WsExLayered | WsExTransparent
                 : WsExToolWindow | WsExNoActivate;
-            x = 0;
-            y = 0;
-            width = WindowsInterop.GetSystemMetrics(SmCxScreen);
-            height = WindowsInterop.GetSystemMetrics(SmCyScreen);
+            _bounds = WindowsDisplays.ResolveBounds(displayKey);
+            x = _bounds.Left;
+            y = _bounds.Top;
+            width = _bounds.Right - _bounds.Left;
+            height = _bounds.Bottom - _bounds.Top;
         }
 
         _hwnd = WindowsInterop.CreateWindowExW(
@@ -116,7 +118,7 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
         }
         else if (mode == DisplayMode.Wallpaper)
         {
-            AttachToWallpaperHost(width, height);
+            AttachToWallpaperHost(x, y, width, height);
         }
 
         var wallpaperTransparent = mode == DisplayMode.Wallpaper && coordinator.WallpaperTransparency;
@@ -199,11 +201,13 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             }
         }
 
+        var bounds = _bounds;
         Task.Run(() =>
         {
             try
             {
-                var background = WindowsWallpaper.LoadBackground(WindowsWallpaper.Query());
+                var background = WindowsWallpaper.LoadBackground(
+                    WindowsWallpaper.Query(bounds), bounds.Left, bounds.Top);
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (!_closed)
@@ -219,7 +223,7 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
         });
     }
 
-    private void AttachToWallpaperHost(int width, int height)
+    private void AttachToWallpaperHost(int x, int y, int width, int height)
     {
         var host = FindWallpaperHost();
         var originX = 0;
@@ -238,9 +242,8 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             WindowsInterop.SetWindowPos(_hwnd, HwndBottom, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
         }
 
-        // The primary screen's origin, relative to the wallpaper host.
         WindowsInterop.SetWindowPos(
-            _hwnd, IntPtr.Zero, -originX, -originY, width, height, SwpNoZOrder | SwpNoActivate);
+            _hwnd, IntPtr.Zero, x - originX, y - originY, width, height, SwpNoZOrder | SwpNoActivate);
     }
 
     private static IntPtr FindWallpaperHost()

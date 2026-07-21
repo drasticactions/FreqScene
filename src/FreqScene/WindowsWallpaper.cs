@@ -41,9 +41,9 @@ internal static unsafe class WindowsWallpaper
     private static readonly Guid ClsidDesktopWallpaper = new("C2CF3110-460E-4FC1-B9D0-8A1C0C9CC4BD");
     private static readonly Guid IidIDesktopWallpaper = new("B92B56A9-8B55-4E14-9A89-0199BBB6F93B");
 
-    public static WallpaperInfo Query()
+    public static WallpaperInfo Query(WindowsInterop.Rect? monitorBounds = null)
     {
-        var (path, position, color) = QueryDesktopWallpaper() ?? QuerySystemParameters();
+        var (path, position, color) = QueryDesktopWallpaper(monitorBounds) ?? QuerySystemParameters();
         return new WallpaperInfo(
             path,
             position,
@@ -54,7 +54,7 @@ internal static unsafe class WindowsWallpaper
             WindowsInterop.GetSystemMetrics(SmCyVirtualScreen));
     }
 
-    public static WallpaperBackground LoadBackground(WallpaperInfo info)
+    public static WallpaperBackground LoadBackground(WallpaperInfo info, int originX = 0, int originY = 0)
     {
         (byte[] Pixels, int Width, int Height)? image = null;
         if (info.ImagePath is { } path && File.Exists(path))
@@ -78,8 +78,8 @@ internal static unsafe class WindowsWallpaper
             BackgroundRed = (info.BackgroundColor & 0xFF) / 255f,
             BackgroundGreen = ((info.BackgroundColor >> 8) & 0xFF) / 255f,
             BackgroundBlue = ((info.BackgroundColor >> 16) & 0xFF) / 255f,
-            SpanX = info.VirtualScreenX,
-            SpanY = info.VirtualScreenY,
+            SpanX = info.VirtualScreenX - originX,
+            SpanY = info.VirtualScreenY - originY,
             SpanWidth = info.VirtualScreenWidth,
             SpanHeight = info.VirtualScreenHeight,
         };
@@ -128,6 +128,12 @@ internal static unsafe class WindowsWallpaper
 
         var cropX = -targetRect.Left;
         var cropY = -targetRect.Top;
+        if (excludeWindow != IntPtr.Zero && WindowsInterop.GetWindowRect(excludeWindow, out var windowRect))
+        {
+            cropX = windowRect.Left - targetRect.Left;
+            cropY = windowRect.Top - targetRect.Top;
+        }
+
         if (cropX < 0 || cropY < 0 || cropX + width > targetWidth || cropY + height > targetHeight)
         {
             return null;
@@ -226,7 +232,8 @@ internal static unsafe class WindowsWallpaper
         return true;
     }
 
-    private static (string? Path, WallpaperPosition Position, uint Color)? QueryDesktopWallpaper()
+    private static (string? Path, WallpaperPosition Position, uint Color)? QueryDesktopWallpaper(
+        WindowsInterop.Rect? monitorBounds)
     {
         var balanceInit = WindowsInterop.CoInitializeEx(IntPtr.Zero, CoInitApartmentThreaded) >= 0;
         try
@@ -241,7 +248,7 @@ internal static unsafe class WindowsWallpaper
             try
             {
                 var vtable = *(void***)instance;
-                var path = GetWallpaperPath(instance, vtable);
+                var path = GetWallpaperPath(instance, vtable, monitorBounds);
                 var position = (int)WallpaperPosition.Fill;
                 ((delegate* unmanaged<IntPtr, int*, int>)vtable[SlotGetPosition])(instance, &position);
                 uint color = 0;
@@ -262,9 +269,9 @@ internal static unsafe class WindowsWallpaper
         }
     }
 
-    private static string? GetWallpaperPath(IntPtr instance, void** vtable)
+    private static string? GetWallpaperPath(IntPtr instance, void** vtable, WindowsInterop.Rect? monitorBounds)
     {
-        var monitorId = FindPrimaryMonitorId(instance, vtable);
+        var monitorId = FindMonitorId(instance, vtable, monitorBounds);
         var pathPtr = IntPtr.Zero;
         int hr;
         if (monitorId is not null)
@@ -291,8 +298,10 @@ internal static unsafe class WindowsWallpaper
         return string.IsNullOrWhiteSpace(path) ? null : path;
     }
 
-    private static string? FindPrimaryMonitorId(IntPtr instance, void** vtable)
+    private static string? FindMonitorId(IntPtr instance, void** vtable, WindowsInterop.Rect? monitorBounds)
     {
+        var targetLeft = monitorBounds?.Left ?? 0;
+        var targetTop = monitorBounds?.Top ?? 0;
         uint count = 0;
         if (((delegate* unmanaged<IntPtr, uint*, int>)vtable[SlotGetMonitorDevicePathCount])(instance, &count) < 0)
         {
@@ -324,7 +333,7 @@ internal static unsafe class WindowsWallpaper
                     instance, p, &rect);
             }
 
-            if (hr >= 0 && rect is { Left: 0, Top: 0 })
+            if (hr >= 0 && rect.Left == targetLeft && rect.Top == targetTop)
             {
                 return id;
             }
