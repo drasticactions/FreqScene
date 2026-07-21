@@ -187,7 +187,7 @@ public partial class App : Application
         var trayIcon = new TrayIcon
         {
             Icon = CreateTrayIconImage(),
-            ToolTipText = "projectM visualizer",
+            ToolTipText = "FreqScene",
             Menu = menu,
         };
         trayIcon.Clicked += (_, _) =>
