@@ -25,6 +25,9 @@
 #                                   xcrun notarytool store-credentials <name> \
 #                                     --apple-id <you@x> --team-id <TEAMID> --password <app-specific-pw>
 #   --arch <universal|arm64|x64>  Bundle architecture (default: universal)
+#   --aot                         Publish with NativeAOT (implies trimming; drops
+#                                   the JIT/unsigned-exec entitlements). Mutually
+#                                   exclusive with --no-trim.
 #   --no-trim                     Publish self-contained but without trimming
 #   --output <dir>                Output directory (default: artifacts/pack)
 #   -h, --help                    Show this help
@@ -42,6 +45,7 @@ IDENTITY="${CODESIGN_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 ARCH="universal"
 TRIM=1
+AOT=0
 OUTPUT_DIR="$REPO_ROOT/artifacts/pack"
 
 APP_NAME="FreqScene"                 # display name + apphost/assembly name
@@ -60,9 +64,10 @@ while [[ $# -gt 0 ]]; do
     --identity)       IDENTITY="${2:?}"; shift 2 ;;
     --notary-profile) NOTARY_PROFILE="${2:?}"; shift 2 ;;
     --arch)           ARCH="${2:?}"; shift 2 ;;
+    --aot)            AOT=1; shift ;;
     --no-trim)        TRIM=0; shift ;;
     --output)         OUTPUT_DIR="${2:?}"; shift 2 ;;
-    -h|--help)        sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)        sed -n '2,33p' "$0"; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
 done
@@ -70,6 +75,8 @@ done
 [[ "$(uname -s)" == "Darwin" ]] || die "this script must run on macOS"
 case "$SIGN_FLOW" in adhoc|devid|notarize) ;; *) die "--sign must be adhoc|devid|notarize" ;; esac
 case "$ARCH" in universal|arm64|x64) ;; *) die "--arch must be universal|arm64|x64" ;; esac
+# NativeAOT always trims; the two flags contradict each other.
+[[ $AOT -eq 1 && $TRIM -eq 0 ]] && die "--aot and --no-trim are mutually exclusive (AOT implies trimming)"
 
 # Which RIDs do we need to publish?
 case "$ARCH" in
@@ -110,15 +117,29 @@ rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 
 pubdir() { echo "$WORK_DIR/publish/$1"; }
+
+# NativeAOT implies self-contained + trimming and emits a single native Mach-O
+# (all managed code compiled in); the trimmed path keeps the apphost + managed
+# assemblies. PublishSingleFile is meaningless under AOT, so only set it otherwise.
+publish_props() {
+  if [[ $AOT -eq 1 ]]; then
+    printf '%s\n' -p:PublishAot=true
+  else
+    printf '%s\n' \
+      -p:PublishTrimmed="$([[ $TRIM -eq 1 ]] && echo true || echo false)" \
+      -p:PublishSingleFile=false
+  fi
+}
+
 for rid in "${RIDS[@]}"; do
   out="$(pubdir "$rid")"
-  info "dotnet publish $rid (self-contained, trim=$TRIM)"
+  info "dotnet publish $rid ($([[ $AOT -eq 1 ]] && echo 'NativeAOT' || echo "self-contained, trim=$TRIM"))"
+  # shellcheck disable=SC2046
   dotnet publish "$PROJECT" \
     -c Release \
     -r "$rid" \
     --self-contained true \
-    -p:PublishTrimmed="$([[ $TRIM -eq 1 ]] && echo true || echo false)" \
-    -p:PublishSingleFile=false \
+    $(publish_props) \
     -p:DebugType=none \
     -p:DebugSymbols=false \
     -o "$out"
@@ -249,6 +270,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$APP_VERSION</string>
     $ICON_KEY
     <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
+    <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
@@ -259,21 +281,31 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 PLIST
 plutil -lint "$CONTENTS/Info.plist" >/dev/null
 
-# Hardened-runtime entitlements: .NET needs JIT/writable-exec + library validation
-# relaxed for its unsigned-at-build dylibs; the visualizer needs mic capture.
+# Hardened-runtime entitlements: the CoreCLR JIT needs writable-exec memory, so
+# the trimmed path relaxes JIT/unsigned-exec. NativeAOT has no JIT, so those are
+# dropped for a tighter runtime. Library validation stays relaxed for the
+# unsigned-at-build third-party dylibs; the visualizer always needs mic capture.
 ENTITLEMENTS="$WORK_DIR/entitlements.plist"
-cat > "$ENTITLEMENTS" <<'ENT'
+{
+  cat <<'ENT'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+ENT
+  if [[ $AOT -eq 0 ]]; then
+    cat <<'ENT'
     <key>com.apple.security.cs.allow-jit</key><true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+ENT
+  fi
+  cat <<'ENT'
     <key>com.apple.security.cs.disable-library-validation</key><true/>
     <key>com.apple.security.device.audio-input</key><true/>
 </dict>
 </plist>
 ENT
+} > "$ENTITLEMENTS"
 
 # ---------------------------------------------------------------------------
 # 5. Signing
