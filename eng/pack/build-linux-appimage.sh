@@ -17,6 +17,9 @@
 #   --arch <x64|arm64>   Target architecture (default: x64). arm64 requires the
 #                        native libprojectM for linux-arm64 to already exist under
 #                        artifacts/native/ — this script does not cross-build it.
+#   --aot                Publish with NativeAOT (implies trimming; requires the
+#                        clang toolchain + zlib dev headers). Mutually exclusive
+#                        with --no-trim.
 #   --no-trim            Publish self-contained but without trimming
 #   --output <dir>       Output directory (default: artifacts/pack)
 #   --appimagetool <p>   Path to appimagetool (default: found on PATH, else fetched)
@@ -37,6 +40,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_VERSION="1.0.0"
 ARCH="x64"
 TRIM=1
+AOT=0
 OUTPUT_DIR="$REPO_ROOT/artifacts/pack"
 APPIMAGETOOL="${APPIMAGETOOL:-}"
 UPDATE_INFO=""                       # raw string (--update-info); wins if set
@@ -55,6 +59,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --version)      APP_VERSION="${2:?}"; shift 2 ;;
     --arch)         ARCH="${2:?}"; shift 2 ;;
+    --aot)          AOT=1; shift ;;
     --no-trim)      TRIM=0; shift ;;
     --output)       OUTPUT_DIR="${2:?}"; shift 2 ;;
     --appimagetool) APPIMAGETOOL="${2:?}"; shift 2 ;;
@@ -68,6 +73,8 @@ done
 
 [[ "$(uname -s)" == "Linux" ]] || die "this script must run on Linux"
 case "$ARCH" in x64|arm64) ;; *) die "--arch must be x64|arm64" ;; esac
+# NativeAOT always trims; the two flags contradict each other.
+[[ $AOT -eq 1 && $TRIM -eq 0 ]] && die "--aot and --no-trim are mutually exclusive (AOT implies trimming)"
 
 # Map the friendly arch to a .NET RID and the AppImage/uname machine name.
 case "$ARCH" in
@@ -160,13 +167,27 @@ rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 
 PUBLISH_DIR="$WORK_DIR/publish"
-info "dotnet publish $RID (self-contained, trim=$TRIM)"
+
+# NativeAOT implies self-contained + trimming and emits a single native ELF (all
+# managed code compiled in). PublishSingleFile is meaningless under AOT, so only
+# set the trim/single-file props on the non-AOT path.
+publish_props() {
+  if [[ $AOT -eq 1 ]]; then
+    printf '%s\n' -p:PublishAot=true
+  else
+    printf '%s\n' \
+      -p:PublishTrimmed="$([[ $TRIM -eq 1 ]] && echo true || echo false)" \
+      -p:PublishSingleFile=false
+  fi
+}
+
+info "dotnet publish $RID ($([[ $AOT -eq 1 ]] && echo 'NativeAOT' || echo "self-contained, trim=$TRIM"))"
+# shellcheck disable=SC2046
 dotnet publish "$PROJECT" \
   -c Release \
   -r "$RID" \
   --self-contained true \
-  -p:PublishTrimmed="$([[ $TRIM -eq 1 ]] && echo true || echo false)" \
-  -p:PublishSingleFile=false \
+  $(publish_props) \
   -p:DebugType=none \
   -p:DebugSymbols=false \
   -o "$PUBLISH_DIR"
@@ -254,4 +275,4 @@ echo "  image:  $IMG"
 [[ -f "$ZSYNC" ]] && echo "  zsync:  $ZSYNC"
 [[ -n "$UPDATE_INFO" ]] && echo "  update: $UPDATE_INFO"
 echo "  arch:   $IMG_ARCH"
-echo "  trim:   $([[ $TRIM -eq 1 ]] && echo on || echo off)"
+echo "  mode:   $([[ $AOT -eq 1 ]] && echo NativeAOT || echo "self-contained (trim=$([[ $TRIM -eq 1 ]] && echo on || echo off))")"
