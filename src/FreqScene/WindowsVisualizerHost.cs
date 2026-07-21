@@ -146,6 +146,9 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
         }
     }
 
+    public void SetWallpaperBackground(WallpaperBackground? background) =>
+        RunWithGlContext(() => _pipeline.SetWallpaperBackground(background));
+
     /// <summary>Queues an action to run before the next frame on the render thread.</summary>
     public void RunWithGlContext(Action action)
     {

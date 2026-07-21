@@ -16,6 +16,7 @@ public partial class App : Application
     private readonly List<(int Cap, NativeMenuItem Item)> _frameRateItems = [];
     private AppSettings _settings = new();
     private NativeMenu? _audioMenu;
+    private NativeMenuItem? _wallpaperTransparencyItem;
     private VisualizerCoordinator? _coordinator;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private object? _activeWindow;
@@ -47,6 +48,7 @@ public partial class App : Application
             _mode = DisplayModes.Normalize(_settings.DisplayMode);
             _coordinator.RenderScalePercent = _settings.RenderScalePercent;
             _coordinator.FrameRateCap = _settings.FrameRateCap;
+            _coordinator.WallpaperTransparency = _settings.WallpaperTransparency;
 
             SetupTrayIcon(desktop);
             ApplyMode(_mode, persist: false);
@@ -154,6 +156,11 @@ public partial class App : Application
             menu.Items.Add(BuildDisplayModeItem());
         }
 
+        if (DisplayModes.Available.Contains(DisplayMode.Wallpaper))
+        {
+            menu.Items.Add(BuildWallpaperTransparencyItem());
+        }
+
         menu.Items.Add(BuildResolutionItem());
         menu.Items.Add(BuildFrameRateItem());
         menu.Items.Add(new NativeMenuItemSeparator());
@@ -197,6 +204,40 @@ public partial class App : Application
         }
 
         return new NativeMenuItem("Display Mode") { Menu = modeMenu };
+    }
+
+    private NativeMenuItem BuildWallpaperTransparencyItem()
+    {
+        var item = new NativeMenuItem("Wallpaper Transparency")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.WallpaperTransparency,
+        };
+        item.Click += (_, _) =>
+            Dispatcher.UIThread.Post(() => ApplyWallpaperTransparency(!_settings.WallpaperTransparency));
+        _wallpaperTransparencyItem = item;
+        return item;
+    }
+
+    private void ApplyWallpaperTransparency(bool enabled)
+    {
+        _settings.WallpaperTransparency = enabled;
+        if (_coordinator is not null)
+        {
+            _coordinator.WallpaperTransparency = enabled;
+        }
+
+        if (_wallpaperTransparencyItem is not null)
+        {
+            _wallpaperTransparencyItem.IsChecked = enabled;
+        }
+
+        SettingsStore.Save(_settings);
+
+        if (_mode == DisplayMode.Wallpaper)
+        {
+            ApplyMode(_mode, persist: false);
+        }
     }
 
     private NativeMenuItem BuildResolutionItem()

@@ -14,6 +14,8 @@ internal static unsafe class Gl
     public const int TextureWrapS = 0x2802;
     public const int TextureWrapT = 0x2803;
     public const int ClampToEdge = 0x812F;
+    public const int Repeat = 0x2901;
+    public const int Bgra = 0x80E1;
     public const int Framebuffer = 0x8D40;
     public const int ReadFramebuffer = 0x8CA8;
     public const int DrawFramebuffer = 0x8CA9;
@@ -28,6 +30,7 @@ internal static unsafe class Gl
     public const int LinkStatus = 0x8B82;
     public const int TriangleStrip = 0x0005;
     public const int Texture0 = 0x84C0;
+    public const int Texture1 = 0x84C1;
     public const int DepthTest = 0x0B71;
     public const int Blend = 0x0BE2;
     public const int ScissorTest = 0x0C11;
@@ -70,6 +73,7 @@ internal static unsafe class Gl
     private static delegate* unmanaged<int, int, int, void> _drawArrays;
     private static delegate* unmanaged<int, void> _activeTexture;
     private static delegate* unmanaged<int, int, void> _uniform1i;
+    private static delegate* unmanaged<int, float, float, float, float, void> _uniform4f;
     private static delegate* unmanaged<uint, byte*, int> _getUniformLocation;
     private static delegate* unmanaged<int, void> _disable;
 
@@ -118,6 +122,7 @@ internal static unsafe class Gl
         _drawArrays = (delegate* unmanaged<int, int, int, void>)Load(getProcAddress, "glDrawArrays");
         _activeTexture = (delegate* unmanaged<int, void>)Load(getProcAddress, "glActiveTexture");
         _uniform1i = (delegate* unmanaged<int, int, void>)Load(getProcAddress, "glUniform1i");
+        _uniform4f = (delegate* unmanaged<int, float, float, float, float, void>)Load(getProcAddress, "glUniform4f");
         _getUniformLocation = (delegate* unmanaged<uint, byte*, int>)Load(getProcAddress, "glGetUniformLocation");
         _disable = (delegate* unmanaged<int, void>)Load(getProcAddress, "glDisable");
         _initialized = true;
@@ -266,6 +271,9 @@ internal static unsafe class Gl
     public static void ActiveTexture(int texture) => _activeTexture(texture);
 
     public static void Uniform1i(int location, int value) => _uniform1i(location, value);
+
+    public static void Uniform4f(int location, float x, float y, float z, float w) =>
+        _uniform4f(location, x, y, z, w);
 
     public static int GetUniformLocation(uint program, string name)
     {

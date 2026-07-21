@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Avalonia.Threading;
 
 namespace FreqScene;
 
@@ -118,7 +119,8 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             AttachToWallpaperHost(width, height);
         }
 
-        _host = new WindowsVisualizerHost(_hwnd, transparent: mode == DisplayMode.Overlay)
+        var wallpaperTransparent = mode == DisplayMode.Wallpaper && coordinator.WallpaperTransparency;
+        _host = new WindowsVisualizerHost(_hwnd, transparent: mode == DisplayMode.Overlay || wallpaperTransparent)
         {
             RenderScale = coordinator.RenderScalePercent / 100.0,
         };
@@ -127,6 +129,11 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
         _onRenderScaleChanged = percent => _host.RenderScale = percent / 100.0;
         coordinator.RenderScaleChanged += _onRenderScaleChanged;
         coordinator.AttachControl(_host);
+
+        if (wallpaperTransparent)
+        {
+            CaptureWallpaperBackground();
+        }
     }
 
     public void Show()
@@ -168,6 +175,48 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             // Vacating the shell's wallpaper host leaves it blank otherwise.
             RefreshDesktop();
         }
+    }
+
+    private void CaptureWallpaperBackground()
+    {
+        if (WindowsInterop.GetClientRect(_hwnd, out var rect))
+        {
+            WallpaperBackground? captured = null;
+            try
+            {
+                captured = WindowsWallpaper.CaptureShellRendering(
+                    rect.Right - rect.Left, rect.Bottom - rect.Top, _hwnd);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceError($"[native] wallpaper capture failed: {ex}");
+            }
+
+            if (captured is not null)
+            {
+                _host.SetWallpaperBackground(captured);
+                return;
+            }
+        }
+
+        Task.Run(() =>
+        {
+            try
+            {
+                var background = WindowsWallpaper.LoadBackground(WindowsWallpaper.Query());
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!_closed)
+                    {
+                        _host.SetWallpaperBackground(background);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceError($"[native] wallpaper query failed: {ex}");
+            }
+        });
     }
 
     private void AttachToWallpaperHost(int width, int height)

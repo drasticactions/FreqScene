@@ -156,6 +156,8 @@ public sealed class VisualizerCoordinator : IDisposable
         }
     }
 
+    public bool WallpaperTransparency { get; set; } = true;
+
     public int RenderScalePercent
     {
         get => _renderScalePercent;

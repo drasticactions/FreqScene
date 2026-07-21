@@ -30,10 +30,11 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
     private volatile bool _failed;
     private long _nextFrameDue;
 
-    public LinuxVisualizerHost(DisplayMode mode)
+    public LinuxVisualizerHost(DisplayMode mode, bool wallpaperTransparency)
     {
         _mode = mode;
-        _transparent = mode != DisplayMode.Window;
+        _transparent = mode == DisplayMode.Overlay ||
+            (mode == DisplayMode.Wallpaper && wallpaperTransparency);
     }
 
     public ProjectM? Instance => _instance;

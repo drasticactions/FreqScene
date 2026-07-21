@@ -10,6 +10,7 @@ internal static unsafe partial class WindowsInterop
     private const string DwmApi = "dwmapi.dll";
     private const string WinMm = "winmm.dll";
     private const string Kernel32 = "kernel32.dll";
+    private const string Ole32 = "ole32.dll";
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Rect
@@ -120,6 +121,22 @@ internal static unsafe partial class WindowsInterop
         public int Right;
         public int Top;
         public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BitmapInfoHeader
+    {
+        public uint Size;
+        public int Width;
+        public int Height;
+        public ushort Planes;
+        public ushort BitCount;
+        public uint Compression;
+        public uint SizeImage;
+        public int XPelsPerMeter;
+        public int YPelsPerMeter;
+        public uint ClrUsed;
+        public uint ClrImportant;
     }
 
     [LibraryImport(Kernel32, EntryPoint = "GetModuleHandleW", StringMarshalling = StringMarshalling.Utf16)]
@@ -244,6 +261,53 @@ internal static unsafe partial class WindowsInterop
 
     [LibraryImport(DwmApi, EntryPoint = "DwmExtendFrameIntoClientArea")]
     public static partial int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins margins);
+
+    [LibraryImport(User32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool PrintWindow(IntPtr hwnd, IntPtr dc, uint flags);
+
+    [LibraryImport(User32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsWindowVisible(IntPtr hwnd);
+
+    [LibraryImport(Gdi32)]
+    public static partial IntPtr CreateCompatibleDC(IntPtr dc);
+
+    [LibraryImport(Gdi32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DeleteDC(IntPtr dc);
+
+    [LibraryImport(Gdi32)]
+    public static partial IntPtr CreateDIBSection(
+        IntPtr dc, in BitmapInfoHeader info, uint usage, out IntPtr bits, IntPtr section, uint offset);
+
+    [LibraryImport(Gdi32)]
+    public static partial IntPtr SelectObject(IntPtr dc, IntPtr gdiObject);
+
+    [LibraryImport(Gdi32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DeleteObject(IntPtr gdiObject);
+
+    [LibraryImport(Gdi32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GdiFlush();
+
+    [LibraryImport(User32, EntryPoint = "SystemParametersInfoW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SystemParametersInfoW(uint action, uint uiParam, char* pvParam, uint winIni);
+
+    [LibraryImport(Ole32)]
+    public static partial int CoInitializeEx(IntPtr reserved, uint apartment);
+
+    [LibraryImport(Ole32)]
+    public static partial void CoUninitialize();
+
+    [LibraryImport(Ole32)]
+    public static partial int CoCreateInstance(
+        in Guid clsid, IntPtr outer, uint context, in Guid iid, out IntPtr instance);
+
+    [LibraryImport(Ole32)]
+    public static partial void CoTaskMemFree(IntPtr pointer);
 
     [LibraryImport(WinMm, EntryPoint = "timeBeginPeriod")]
     public static partial uint TimeBeginPeriod(uint period);

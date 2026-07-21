@@ -4,6 +4,8 @@ public sealed class AppSettings
 {
     public DisplayMode DisplayMode { get; set; } = DisplayMode.Window;
 
+    public bool WallpaperTransparency { get; set; } = true;
+
     public int RenderScalePercent { get; set; } = QualityOptions.DefaultRenderScalePercent;
 
     public int FrameRateCap { get; set; } = QualityOptions.DefaultFrameRateCap;

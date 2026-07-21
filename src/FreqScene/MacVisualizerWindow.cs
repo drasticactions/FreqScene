@@ -68,7 +68,9 @@ internal sealed class MacVisualizerWindow : INativeVisualizerWindow
         MacInterop.MsgSendVoid(_window, MacInterop.Sel("setContentView:"), view);
         MacInterop.MsgSendVoid(view, SelRelease); // the window retains it
 
-        _host = new MacVisualizerHost(_window, view, transparent: !isWindowMode)
+        var transparent = mode == DisplayMode.Overlay ||
+            (mode == DisplayMode.Wallpaper && coordinator.WallpaperTransparency);
+        _host = new MacVisualizerHost(_window, view, transparent: transparent)
         {
             RenderScale = coordinator.RenderScalePercent / 100.0,
         };
