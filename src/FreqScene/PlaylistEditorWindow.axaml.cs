@@ -33,6 +33,7 @@ public partial class PlaylistEditorWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
 
         PlaylistGrid.AddHandler(PointerPressedEvent, OnGridPointerPressed, RoutingStrategies.Tunnel);
+        PlaylistGrid.AddHandler(KeyDownEvent, OnGridKeyDown, RoutingStrategies.Tunnel);
         PlaylistGrid.PointerMoved += OnGridPointerMoved;
 
         coordinator.CurrentIndexChanged += OnCurrentIndexChanged;
@@ -150,6 +151,15 @@ public partial class PlaylistEditorWindow : Window
         if (PlaylistGrid.SelectedItem is PresetEntry entry)
         {
             _coordinator.PlayAt(_coordinator.Presets.IndexOf(entry));
+        }
+    }
+
+    private void OnGridKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Space && PlaylistGrid.SelectedItem is PresetEntry entry)
+        {
+            _coordinator.PlayAt(_coordinator.Presets.IndexOf(entry));
+            e.Handled = true;
         }
     }
 
