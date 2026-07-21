@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <None Include="$(NativeAssetsDirectory)win-x64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/win-x64/native/%(Filename)%(Extension)" Visible="false" />
+    <None Include="$(NativeAssetsDirectory)win-arm64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/win-arm64/native/%(Filename)%(Extension)" Visible="false" />
     <None Include="$(NativeAssetsDirectory)osx-arm64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/osx-arm64/native/%(Filename)%(Extension)" Visible="false" />
     <None Include="$(NativeAssetsDirectory)osx-x64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/osx-x64/native/%(Filename)%(Extension)" Visible="false" />
     <None Include="$(NativeAssetsDirectory)linux-x64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/linux-x64/native/%(Filename)%(Extension)" Visible="false" />
