@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch/PR (but let tag builds finish).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS (universal, adhoc-signed)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Resolve tag version
+        id: tagver
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build .app bundle (universal, ad-hoc signed)
+        run: |
+          eng/pack/build-macos-app.sh \
+            --sign adhoc \
+            --arch universal \
+            --version "${VERSION}"
+        env:
+          VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freqscene-macos-universal
+          path: artifacts/pack/*.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  linux:
+    name: Linux x64 (AppImage)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential patchelf zsync \
+            libgl1-mesa-dev libglu1-mesa-dev
+
+      - name: Resolve tag version
+        id: tagver
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build AppImage
+        # APPIMAGE_EXTRACT_AND_RUN lets the appimagetool AppImage run without FUSE,
+        # which GitHub-hosted runners do not provide.
+        run: |
+          eng/pack/build-linux-appimage.sh \
+            --arch x64 \
+            --version "${VERSION}"
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freqscene-linux-x64
+          path: |
+            artifacts/pack/*.AppImage
+            artifacts/pack/*.zsync
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows x64 (AOT zip)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Resolve tag version
+        id: tagver
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Windows zip (NativeAOT)
+        shell: pwsh
+        run: |
+          eng/pack/build-windows-zip.ps1 -Arch x64 -Version $env:VERSION
+        env:
+          VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freqscene-windows-x64
+          path: artifacts/pack/*.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # On a v* tag, gather every platform's artifacts and publish a GitHub Release.
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --generate-notes \
+            $(find dist -type f | sort)
