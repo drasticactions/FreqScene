@@ -16,7 +16,11 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
         instance.AttachPlaylist();
         try
         {
-            _handle = PlaylistNativeMethods.projectm_playlist_create(instance.Handle);
+            lock (instance.NativeLock)
+            {
+                _handle = PlaylistNativeMethods.projectm_playlist_create(instance.Handle);
+            }
+
             if (_handle is null)
             {
                 throw new ProjectMException("projectm_playlist_create failed.");
@@ -30,10 +34,13 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
 
         _core = instance;
         _self = GCHandle.Alloc(this);
-        PlaylistNativeMethods.projectm_playlist_set_preset_switched_event_callback(
-            _handle, &OnPresetSwitched, (void*)GCHandle.ToIntPtr(_self));
-        PlaylistNativeMethods.projectm_playlist_set_preset_switch_failed_event_callback(
-            _handle, &OnPresetSwitchFailed, (void*)GCHandle.ToIntPtr(_self));
+        lock (_core.NativeLock)
+        {
+            PlaylistNativeMethods.projectm_playlist_set_preset_switched_event_callback(
+                _handle, &OnPresetSwitched, (void*)GCHandle.ToIntPtr(_self));
+            PlaylistNativeMethods.projectm_playlist_set_preset_switch_failed_event_callback(
+                _handle, &OnPresetSwitchFailed, (void*)GCHandle.ToIntPtr(_self));
+        }
     }
 
     /// <summary>
@@ -65,8 +72,11 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
             _presetLoading += value;
             if (register)
             {
-                PlaylistNativeMethods.projectm_playlist_set_preset_load_event_callback(
-                    Handle, &OnPresetLoading, (void*)GCHandle.ToIntPtr(_self));
+                lock (_core.NativeLock)
+                {
+                    PlaylistNativeMethods.projectm_playlist_set_preset_load_event_callback(
+                        Handle, &OnPresetLoading, (void*)GCHandle.ToIntPtr(_self));
+                }
             }
         }
         remove
@@ -74,7 +84,10 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
             _presetLoading -= value;
             if (_presetLoading is null && _handle is not null)
             {
-                PlaylistNativeMethods.projectm_playlist_set_preset_load_event_callback(_handle, null, null);
+                lock (_core.NativeLock)
+                {
+                    PlaylistNativeMethods.projectm_playlist_set_preset_load_event_callback(_handle, null, null);
+                }
             }
         }
     }
@@ -82,15 +95,36 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
     /// <summary>
     /// Number of items in the playlist.
     /// </summary>
-    public uint Count => PlaylistNativeMethods.projectm_playlist_size(Handle);
+    public uint Count
+    {
+        get
+        {
+            lock (_core.NativeLock)
+            {
+                return PlaylistNativeMethods.projectm_playlist_size(Handle);
+            }
+        }
+    }
 
     /// <summary>
     /// Whether presets play in random order.
     /// </summary>
     public bool Shuffle
     {
-        get => PlaylistNativeMethods.projectm_playlist_get_shuffle(Handle) != 0;
-        set => PlaylistNativeMethods.projectm_playlist_set_shuffle(Handle, (byte)(value ? 1 : 0));
+        get
+        {
+            lock (_core.NativeLock)
+            {
+                return PlaylistNativeMethods.projectm_playlist_get_shuffle(Handle) != 0;
+            }
+        }
+        set
+        {
+            lock (_core.NativeLock)
+            {
+                PlaylistNativeMethods.projectm_playlist_set_shuffle(Handle, (byte)(value ? 1 : 0));
+            }
+        }
     }
 
     /// <summary>
@@ -98,80 +132,152 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
     /// </summary>
     public uint RetryCount
     {
-        get => PlaylistNativeMethods.projectm_playlist_get_retry_count(Handle);
-        set => PlaylistNativeMethods.projectm_playlist_set_retry_count(Handle, value);
+        get
+        {
+            lock (_core.NativeLock)
+            {
+                return PlaylistNativeMethods.projectm_playlist_get_retry_count(Handle);
+            }
+        }
+        set
+        {
+            lock (_core.NativeLock)
+            {
+                PlaylistNativeMethods.projectm_playlist_set_retry_count(Handle, value);
+            }
+        }
     }
 
     /// <summary>
     /// Current playlist position.
     /// </summary>
-    public uint Position => PlaylistNativeMethods.projectm_playlist_get_position(Handle);
+    public uint Position
+    {
+        get
+        {
+            lock (_core.NativeLock)
+            {
+                return PlaylistNativeMethods.projectm_playlist_get_position(Handle);
+            }
+        }
+    }
 
     /// <summary>
     /// Removes all items.
     /// </summary>
-    public void Clear() => PlaylistNativeMethods.projectm_playlist_clear(Handle);
+    public void Clear()
+    {
+        lock (_core.NativeLock)
+        {
+            PlaylistNativeMethods.projectm_playlist_clear(Handle);
+        }
+    }
 
     /// <summary>
     /// Adds all <c>.milk</c> presets found under <paramref name="path"/>.
     /// Returns the number of presets added.
     /// </summary>
-    public uint AddPath(string path, bool recurseSubdirectories = true, bool allowDuplicates = false) =>
-        NativeStrings.WithUtf8(path, p => PlaylistNativeMethods.projectm_playlist_add_path(
-            Handle, (sbyte*)p, (byte)(recurseSubdirectories ? 1 : 0), (byte)(allowDuplicates ? 1 : 0)));
+    public uint AddPath(string path, bool recurseSubdirectories = true, bool allowDuplicates = false)
+    {
+        lock (_core.NativeLock)
+        {
+            return NativeStrings.WithUtf8(path, p => PlaylistNativeMethods.projectm_playlist_add_path(
+                Handle, (sbyte*)p, (byte)(recurseSubdirectories ? 1 : 0), (byte)(allowDuplicates ? 1 : 0)));
+        }
+    }
 
     /// <summary>
     /// Inserts all <c>.milk</c> presets found under <paramref name="path"/> at the given index.
     /// </summary>
-    public uint InsertPath(string path, uint index, bool recurseSubdirectories = true, bool allowDuplicates = false) =>
-        NativeStrings.WithUtf8(path, p => PlaylistNativeMethods.projectm_playlist_insert_path(
-            Handle, (sbyte*)p, index, (byte)(recurseSubdirectories ? 1 : 0), (byte)(allowDuplicates ? 1 : 0)));
+    public uint InsertPath(string path, uint index, bool recurseSubdirectories = true, bool allowDuplicates = false)
+    {
+        lock (_core.NativeLock)
+        {
+            return NativeStrings.WithUtf8(path, p => PlaylistNativeMethods.projectm_playlist_insert_path(
+                Handle, (sbyte*)p, index, (byte)(recurseSubdirectories ? 1 : 0), (byte)(allowDuplicates ? 1 : 0)));
+        }
+    }
 
     /// <summary>
     /// Appends a single preset file. Returns false if it was a rejected duplicate.
     /// </summary>
-    public bool AddPreset(string filename, bool allowDuplicates = false) =>
-        NativeStrings.WithUtf8(filename, p => PlaylistNativeMethods.projectm_playlist_add_preset(
-            Handle, (sbyte*)p, (byte)(allowDuplicates ? 1 : 0))) != 0;
+    public bool AddPreset(string filename, bool allowDuplicates = false)
+    {
+        lock (_core.NativeLock)
+        {
+            return NativeStrings.WithUtf8(filename, p => PlaylistNativeMethods.projectm_playlist_add_preset(
+                Handle, (sbyte*)p, (byte)(allowDuplicates ? 1 : 0))) != 0;
+        }
+    }
 
     /// <summary>
     /// Inserts a single preset file at the given index. Returns false if it was a rejected duplicate.
     /// </summary>
-    public bool InsertPreset(string filename, uint index, bool allowDuplicates = false) =>
-        NativeStrings.WithUtf8(filename, p => PlaylistNativeMethods.projectm_playlist_insert_preset(
-            Handle, (sbyte*)p, index, (byte)(allowDuplicates ? 1 : 0))) != 0;
+    public bool InsertPreset(string filename, uint index, bool allowDuplicates = false)
+    {
+        lock (_core.NativeLock)
+        {
+            return NativeStrings.WithUtf8(filename, p => PlaylistNativeMethods.projectm_playlist_insert_preset(
+                Handle, (sbyte*)p, index, (byte)(allowDuplicates ? 1 : 0))) != 0;
+        }
+    }
 
     /// <summary>Removes the preset at <paramref name="index"/>.</summary>
-    public bool RemovePreset(uint index) =>
-        PlaylistNativeMethods.projectm_playlist_remove_preset(Handle, index) != 0;
+    public bool RemovePreset(uint index)
+    {
+        lock (_core.NativeLock)
+        {
+            return PlaylistNativeMethods.projectm_playlist_remove_preset(Handle, index) != 0;
+        }
+    }
 
     /// <summary>
     /// Removes <paramref name="count"/> presets starting at <paramref name="index"/>. Returns the number removed.
     /// </summary>
-    public uint RemovePresets(uint index, uint count) =>
-        PlaylistNativeMethods.projectm_playlist_remove_presets(Handle, index, count);
+    public uint RemovePresets(uint index, uint count)
+    {
+        lock (_core.NativeLock)
+        {
+            return PlaylistNativeMethods.projectm_playlist_remove_presets(Handle, index, count);
+        }
+    }
 
     /// <summary>
     /// Returns the preset filename at <paramref name="index"/>, or null if out of range.
     /// </summary>
-    public string? GetItem(uint index) =>
-        NativeStrings.ConsumePlaylistString(PlaylistNativeMethods.projectm_playlist_item(Handle, index));
+    public string? GetItem(uint index)
+    {
+        lock (_core.NativeLock)
+        {
+            return NativeStrings.ConsumePlaylistString(PlaylistNativeMethods.projectm_playlist_item(Handle, index));
+        }
+    }
 
     /// <summary>
     /// Returns playlist items, optionally windowed by <paramref name="start"/>
     /// and <paramref name="count"/> (the maximum number of items returned).
     /// </summary>
-    public IReadOnlyList<string> GetItems(uint start = 0, uint count = uint.MaxValue) =>
-        NativeStrings.ConsumePlaylistStringArray(
-            PlaylistNativeMethods.projectm_playlist_items(Handle, start, count));
+    public IReadOnlyList<string> GetItems(uint start = 0, uint count = uint.MaxValue)
+    {
+        lock (_core.NativeLock)
+        {
+            return NativeStrings.ConsumePlaylistStringArray(
+                PlaylistNativeMethods.projectm_playlist_items(Handle, start, count));
+        }
+    }
 
     /// <summary>
     /// Sorts a range of the playlist.
     /// </summary>
-    public void Sort(uint startIndex, uint count, PlaylistSortPredicate predicate, PlaylistSortOrder order) =>
-        PlaylistNativeMethods.projectm_playlist_sort(
-            Handle, startIndex, count,
-            (projectm_playlist_sort_predicate)predicate, (projectm_playlist_sort_order)order);
+    public void Sort(uint startIndex, uint count, PlaylistSortPredicate predicate, PlaylistSortOrder order)
+    {
+        lock (_core.NativeLock)
+        {
+            PlaylistNativeMethods.projectm_playlist_sort(
+                Handle, startIndex, count,
+                (projectm_playlist_sort_predicate)predicate, (projectm_playlist_sort_order)order);
+        }
+    }
 
     /// <summary>
     /// Sorts the whole playlist.
@@ -182,34 +288,66 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
     /// <summary>
     /// Switches to the preset at <paramref name="index"/>.
     /// </summary>
-    public uint SetPosition(uint index, bool hardCut = false) =>
-        _core.TryDispatchGlWork(() => SetPosition(index, hardCut))
-            ? Position
-            : PlaylistNativeMethods.projectm_playlist_set_position(Handle, index, (byte)(hardCut ? 1 : 0));
+    public uint SetPosition(uint index, bool hardCut = false)
+    {
+        if (_core.TryDispatchGlWork(() => SetPosition(index, hardCut)))
+        {
+            return Position;
+        }
+
+        lock (_core.NativeLock)
+        {
+            return PlaylistNativeMethods.projectm_playlist_set_position(Handle, index, (byte)(hardCut ? 1 : 0));
+        }
+    }
 
     /// <summary>
     /// Plays the next preset. Returns the new position (deferred like <see cref="SetPosition"/> when hosted).
     /// </summary>
-    public uint PlayNext(bool hardCut = false) =>
-        _core.TryDispatchGlWork(() => PlayNext(hardCut))
-            ? Position
-            : PlaylistNativeMethods.projectm_playlist_play_next(Handle, (byte)(hardCut ? 1 : 0));
+    public uint PlayNext(bool hardCut = false)
+    {
+        if (_core.TryDispatchGlWork(() => PlayNext(hardCut)))
+        {
+            return Position;
+        }
+
+        lock (_core.NativeLock)
+        {
+            return PlaylistNativeMethods.projectm_playlist_play_next(Handle, (byte)(hardCut ? 1 : 0));
+        }
+    }
 
     /// <summary>
     /// Plays the previous preset. Returns the new position (deferred like <see cref="SetPosition"/> when hosted).
     /// </summary>
-    public uint PlayPrevious(bool hardCut = false) =>
-        _core.TryDispatchGlWork(() => PlayPrevious(hardCut))
-            ? Position
-            : PlaylistNativeMethods.projectm_playlist_play_previous(Handle, (byte)(hardCut ? 1 : 0));
+    public uint PlayPrevious(bool hardCut = false)
+    {
+        if (_core.TryDispatchGlWork(() => PlayPrevious(hardCut)))
+        {
+            return Position;
+        }
+
+        lock (_core.NativeLock)
+        {
+            return PlaylistNativeMethods.projectm_playlist_play_previous(Handle, (byte)(hardCut ? 1 : 0));
+        }
+    }
 
     /// <summary>
     /// Replays the last preset from the play history. Returns the new position.
     /// </summary>
-    public uint PlayLast(bool hardCut = false) =>
-        _core.TryDispatchGlWork(() => PlayLast(hardCut))
-            ? Position
-            : PlaylistNativeMethods.projectm_playlist_play_last(Handle, (byte)(hardCut ? 1 : 0));
+    public uint PlayLast(bool hardCut = false)
+    {
+        if (_core.TryDispatchGlWork(() => PlayLast(hardCut)))
+        {
+            return Position;
+        }
+
+        lock (_core.NativeLock)
+        {
+            return PlaylistNativeMethods.projectm_playlist_play_last(Handle, (byte)(hardCut ? 1 : 0));
+        }
+    }
 
     /// <summary>
     /// Sets the filename filter list applied when adding paths.
@@ -217,8 +355,11 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
     public void SetFilter(IReadOnlyList<string> patterns)
     {
         ArgumentNullException.ThrowIfNull(patterns);
-        NativeStrings.WithUtf8Array(patterns, (array, count) =>
-            PlaylistNativeMethods.projectm_playlist_set_filter(Handle, (sbyte**)array, count));
+        lock (_core.NativeLock)
+        {
+            NativeStrings.WithUtf8Array(patterns, (array, count) =>
+                PlaylistNativeMethods.projectm_playlist_set_filter(Handle, (sbyte**)array, count));
+        }
     }
 
     /// <summary>
@@ -226,15 +367,24 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
     /// </summary>
     public IReadOnlyList<string> GetFilter()
     {
-        nuint count;
-        var array = PlaylistNativeMethods.projectm_playlist_get_filter(Handle, &count);
-        return NativeStrings.ConsumePlaylistStringArray(array, count);
+        lock (_core.NativeLock)
+        {
+            nuint count;
+            var array = PlaylistNativeMethods.projectm_playlist_get_filter(Handle, &count);
+            return NativeStrings.ConsumePlaylistStringArray(array, count);
+        }
     }
 
     /// <summary>
     /// Applies the filter list to the existing items. Returns the number of items removed.
     /// </summary>
-    public nuint ApplyFilter() => PlaylistNativeMethods.projectm_playlist_apply_filter(Handle);
+    public nuint ApplyFilter()
+    {
+        lock (_core.NativeLock)
+        {
+            return PlaylistNativeMethods.projectm_playlist_apply_filter(Handle);
+        }
+    }
 
     /// <summary>
     /// Destroys the native playlist and re-enables the core instance's preset
@@ -248,11 +398,15 @@ public sealed unsafe class ProjectMPlaylist : IDisposable
             return;
         }
 
-        PlaylistNativeMethods.projectm_playlist_set_preset_switched_event_callback(_handle, null, null);
-        PlaylistNativeMethods.projectm_playlist_set_preset_switch_failed_event_callback(_handle, null, null);
-        PlaylistNativeMethods.projectm_playlist_set_preset_load_event_callback(_handle, null, null);
-        PlaylistNativeMethods.projectm_playlist_destroy(_handle);
-        _handle = null;
+        lock (_core.NativeLock)
+        {
+            PlaylistNativeMethods.projectm_playlist_set_preset_switched_event_callback(_handle, null, null);
+            PlaylistNativeMethods.projectm_playlist_set_preset_switch_failed_event_callback(_handle, null, null);
+            PlaylistNativeMethods.projectm_playlist_set_preset_load_event_callback(_handle, null, null);
+            PlaylistNativeMethods.projectm_playlist_destroy(_handle);
+            _handle = null;
+        }
+
         if (_self.IsAllocated)
         {
             _self.Free();

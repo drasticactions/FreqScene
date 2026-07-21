@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace FreqScene;
 
-internal sealed class MacVisualizerWindow
+internal sealed class MacVisualizerWindow : INativeVisualizerWindow
 {
     private const ulong StyleMaskResizable = 1UL << 3;
     private const ulong BackingStoreBuffered = 2;

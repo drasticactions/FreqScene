@@ -37,7 +37,7 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             desktop.Exit += (_, _) =>
             {
-                (_activeWindow as MacVisualizerWindow)?.Close();
+                (_activeWindow as INativeVisualizerWindow)?.Close();
                 _coordinator?.Dispose();
             };
             _coordinator = new VisualizerCoordinator();
@@ -77,25 +77,25 @@ public partial class App : Application
                 _switchingMode = false;
             }
         }
-        else if (_activeWindow is MacVisualizerWindow previousNative)
+        else if (_activeWindow is INativeVisualizerWindow previousNative)
         {
             previousNative.Close();
         }
 
-        if (OperatingSystem.IsMacOS())
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsWindows())
         {
-            var native = new MacVisualizerWindow(_coordinator, mode);
+            INativeVisualizerWindow native = OperatingSystem.IsMacOS()
+                ? new MacVisualizerWindow(_coordinator, mode)
+                : new WindowsVisualizerWindow(_coordinator, mode);
             _activeWindow = native;
             native.Show();
         }
         else
         {
-            Window window = mode == DisplayMode.Window
-                ? CreateMainWindow(_coordinator)
-                : new OverlayWindow(_coordinator, mode == DisplayMode.Wallpaper);
-
+            // Linux is window-only (see DisplayModes.Available).
+            var window = CreateMainWindow(_coordinator);
             _activeWindow = window;
-            _desktop.MainWindow = window as MainWindow;
+            _desktop.MainWindow = window;
             window.Show();
         }
 
@@ -171,7 +171,7 @@ public partial class App : Application
                 window.Show();
                 window.Activate();
             }
-            else if (_activeWindow is MacVisualizerWindow native && _mode == DisplayMode.Window)
+            else if (_activeWindow is INativeVisualizerWindow native && _mode == DisplayMode.Window)
             {
                 native.Show();
             }

@@ -15,9 +15,9 @@ public enum DisplayMode
 public static class DisplayModes
 {
     public static IReadOnlyList<DisplayMode> Available { get; } =
-        OperatingSystem.IsMacOS() ? [DisplayMode.Window, DisplayMode.Overlay, DisplayMode.Wallpaper]
-        : OperatingSystem.IsWindows() ? [DisplayMode.Window, DisplayMode.Wallpaper]
-        : [DisplayMode.Window];
+        OperatingSystem.IsMacOS() || OperatingSystem.IsWindows()
+            ? [DisplayMode.Window, DisplayMode.Overlay, DisplayMode.Wallpaper]
+            : [DisplayMode.Window];
 
     public static DisplayMode Normalize(DisplayMode mode) =>
         Available.Contains(mode) ? mode : DisplayMode.Window;

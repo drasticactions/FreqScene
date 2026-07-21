@@ -28,7 +28,15 @@ public sealed unsafe class ProjectM : IDisposable
 
     internal Action<Action>? GlWorkDispatcher { get; set; }
 
-    internal bool InGlScope { get; set; }
+    private int _glScopeThreadId = -1;
+
+    internal bool InGlScope
+    {
+        get => _glScopeThreadId == Environment.CurrentManagedThreadId;
+        set => _glScopeThreadId = value ? Environment.CurrentManagedThreadId : -1;
+    }
+
+    internal object NativeLock { get; } = new();
 
     internal bool TryDispatchGlWork(Action work)
     {
@@ -179,7 +187,10 @@ public sealed unsafe class ProjectM : IDisposable
     public void RenderFrame()
     {
         AssertGlThread();
-        NativeMethods.projectm_opengl_render_frame(Handle);
+        lock (NativeLock)
+        {
+            NativeMethods.projectm_opengl_render_frame(Handle);
+        }
     }
 
     /// <summary>
@@ -188,7 +199,10 @@ public sealed unsafe class ProjectM : IDisposable
     public void RenderFrame(uint framebufferObjectId)
     {
         AssertGlThread();
-        NativeMethods.projectm_opengl_render_frame_fbo(Handle, framebufferObjectId);
+        lock (NativeLock)
+        {
+            NativeMethods.projectm_opengl_render_frame_fbo(Handle, framebufferObjectId);
+        }
     }
 
     /// <summary>

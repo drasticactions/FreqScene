@@ -16,36 +16,12 @@ internal sealed class MacVisualizerHost : IVisualizerHost
     private const long ParameterSwapInterval = 222;
     private const long ParameterSurfaceOpacity = 236;
 
-    private const string VertexSource = """
-        #version 330 core
-        out vec2 uv;
-        void main()
-        {
-            vec2 pos = vec2(gl_VertexID == 1 || gl_VertexID == 3 ? 1.0 : -1.0,
-                            gl_VertexID >= 2 ? 1.0 : -1.0);
-            uv = pos * 0.5 + 0.5;
-            gl_Position = vec4(pos, 0.0, 1.0);
-        }
-        """;
-
-    private const string FragmentSource = """
-        #version 330 core
-        in vec2 uv;
-        out vec4 fragColor;
-        uniform sampler2D source;
-        void main()
-        {
-            vec3 color = texture(source, uv).rgb;
-            float alpha = max(color.r, max(color.g, color.b));
-            fragColor = vec4(color, alpha);
-        }
-        """;
-
     private readonly IntPtr _window;
     private readonly IntPtr _view;
     private readonly bool _transparent;
     private readonly PcmBuffer _pcmBuffer = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _glActions = new();
+    private readonly GlFramePipeline _pipeline = new();
 
     private static readonly IntPtr SelBounds = MacInterop.Sel("bounds");
     private static readonly IntPtr SelFrame = MacInterop.Sel("frame");
@@ -79,18 +55,8 @@ internal sealed class MacVisualizerHost : IVisualizerHost
     private bool _disposed;
     private bool _failed;
     private long _nextFrameDue;
-    private (int Width, int Height) _lastWindowSize;
     private MacInterop.CgRect _lastFrame;
     private double _lastBackingScale;
-
-    // Offscreen target used for reduced-resolution rendering and the
-    // transparency composite; unused (zero) when rendering directly.
-    private uint _fbo;
-    private uint _fboTexture;
-    private uint _fboDepth;
-    private (int Width, int Height) _fboSize;
-    private uint _program;
-    private uint _vao;
 
     public MacVisualizerHost(IntPtr window, IntPtr view, bool transparent)
     {
@@ -205,6 +171,9 @@ internal sealed class MacVisualizerHost : IVisualizerHost
                 throw new InvalidOperationException("OpenGL.framework could not be loaded.");
             }
 
+            var library = _openGlLibrary;
+            Gl.Initialize(name => MacInterop.DlSym(library, name));
+
             uint[] attributes =
             [
                 PfaOpenGlProfile, ProfileVersion32Core,
@@ -273,7 +242,7 @@ internal sealed class MacVisualizerHost : IVisualizerHost
             _playlist = null;
             _instance?.Dispose();
             _instance = null;
-            ReleaseRenderResources();
+            _pipeline.Release();
             MacInterop.MsgSendVoid(_context, SelClearDrawable);
             MacInterop.MsgSendVoid(_context, SelRelease);
             _context = IntPtr.Zero;
@@ -347,39 +316,7 @@ internal sealed class MacVisualizerHost : IVisualizerHost
             }
 
             _pcmBuffer.Drain(instance);
-
-            var scale = _renderScale;
-            var useOffscreen = _transparent || scale < 0.999;
-            if (useOffscreen)
-            {
-                var scaled = (Math.Max(1, (int)(width * scale)), Math.Max(1, (int)(height * scale)));
-                EnsureOffscreen(scaled);
-                SetWindowSize(instance, scaled);
-                MacGl.BindFramebuffer(MacGl.Framebuffer, _fbo);
-                MacGl.Viewport(0, 0, scaled.Item1, scaled.Item2);
-                instance.RenderFrame(_fbo);
-
-                if (_transparent)
-                {
-                    Composite(width, height);
-                }
-                else
-                {
-                    MacGl.BindFramebuffer(MacGl.ReadFramebuffer, _fbo);
-                    MacGl.BindFramebuffer(MacGl.DrawFramebuffer, 0);
-                    MacGl.BlitFramebuffer(
-                        0, 0, scaled.Item1, scaled.Item2, 0, 0, width, height, MacGl.ColorBufferBit, MacGl.Linear);
-                }
-
-                MacGl.BindFramebuffer(MacGl.Framebuffer, 0);
-            }
-            else
-            {
-                SetWindowSize(instance, (width, height));
-                MacGl.BindFramebuffer(MacGl.Framebuffer, 0);
-                MacGl.Viewport(0, 0, width, height);
-                instance.RenderFrame(0);
-            }
+            _pipeline.Render(instance, width, height, _renderScale, _transparent);
         }
         finally
         {
@@ -422,7 +359,7 @@ internal sealed class MacVisualizerHost : IVisualizerHost
             instance.InGlScope = true;
             try
             {
-                _lastWindowSize = default;
+                _pipeline.ResetWindowSize();
                 instance.PresetDuration = _presetDuration;
                 instance.PresetLocked = _presetLocked;
                 instance.AspectCorrection = true;
@@ -446,129 +383,6 @@ internal sealed class MacVisualizerHost : IVisualizerHost
             _instance = null;
             InitializationFailed?.Invoke(this, ex);
         }
-    }
-
-    private void SetWindowSize(ProjectM instance, (int Width, int Height) size)
-    {
-        if (size != _lastWindowSize)
-        {
-            instance.WindowSize = size;
-            _lastWindowSize = size;
-        }
-    }
-
-    private void EnsureOffscreen((int Width, int Height) size)
-    {
-        if (_fbo == 0)
-        {
-            MacGl.GenFramebuffers(1, out _fbo);
-        }
-
-        if (_fboSize == size)
-        {
-            return;
-        }
-
-        if (_fboTexture != 0)
-        {
-            MacGl.DeleteTextures(1, in _fboTexture);
-        }
-
-        if (_fboDepth != 0)
-        {
-            MacGl.DeleteRenderbuffers(1, in _fboDepth);
-        }
-
-        MacGl.GenTextures(1, out _fboTexture);
-        MacGl.BindTexture(MacGl.Texture2D, _fboTexture);
-        MacGl.TexImage2D(MacGl.Texture2D, 0, MacGl.Rgba8, size.Width, size.Height, 0, MacGl.Rgba, MacGl.UnsignedByte, IntPtr.Zero);
-        MacGl.TexParameteri(MacGl.Texture2D, MacGl.TextureMinFilter, MacGl.Linear);
-        MacGl.TexParameteri(MacGl.Texture2D, MacGl.TextureMagFilter, MacGl.Linear);
-        MacGl.TexParameteri(MacGl.Texture2D, MacGl.TextureWrapS, MacGl.ClampToEdge);
-        MacGl.TexParameteri(MacGl.Texture2D, MacGl.TextureWrapT, MacGl.ClampToEdge);
-        MacGl.BindTexture(MacGl.Texture2D, 0);
-
-        MacGl.GenRenderbuffers(1, out _fboDepth);
-        MacGl.BindRenderbuffer(MacGl.Renderbuffer, _fboDepth);
-        MacGl.RenderbufferStorage(MacGl.Renderbuffer, MacGl.DepthComponent24, size.Width, size.Height);
-        MacGl.BindRenderbuffer(MacGl.Renderbuffer, 0);
-
-        MacGl.BindFramebuffer(MacGl.Framebuffer, _fbo);
-        MacGl.FramebufferTexture2D(MacGl.Framebuffer, MacGl.ColorAttachment0, MacGl.Texture2D, _fboTexture, 0);
-        MacGl.FramebufferRenderbuffer(MacGl.Framebuffer, MacGl.DepthAttachment, MacGl.Renderbuffer, _fboDepth);
-        var status = MacGl.CheckFramebufferStatus(MacGl.Framebuffer);
-        MacGl.BindFramebuffer(MacGl.Framebuffer, 0);
-        if (status != MacGl.FramebufferComplete)
-        {
-            throw new InvalidOperationException($"Offscreen framebuffer incomplete: 0x{status:X}");
-        }
-
-        _fboSize = size;
-    }
-
-    private void Composite(int width, int height)
-    {
-        if (_program == 0)
-        {
-            var vertex = MacGl.CompileShaderChecked(MacGl.VertexShader, VertexSource);
-            var fragment = MacGl.CompileShaderChecked(MacGl.FragmentShader, FragmentSource);
-            _program = MacGl.LinkProgramChecked(vertex, fragment);
-            MacGl.DeleteShader(vertex);
-            MacGl.DeleteShader(fragment);
-            MacGl.GenVertexArrays(1, out _vao);
-        }
-
-        MacGl.BindFramebuffer(MacGl.Framebuffer, 0);
-        MacGl.Viewport(0, 0, width, height);
-        MacGl.Disable(MacGl.DepthTest);
-        MacGl.Disable(MacGl.Blend);
-        MacGl.Disable(MacGl.ScissorTest);
-        MacGl.Disable(MacGl.CullFace);
-
-        MacGl.UseProgram(_program);
-        MacGl.ActiveTexture(MacGl.Texture0);
-        MacGl.BindTexture(MacGl.Texture2D, _fboTexture);
-        MacGl.Uniform1i(MacGl.GetUniformLocation(_program, "source"), 0);
-        MacGl.BindVertexArray(_vao);
-        MacGl.DrawArrays(MacGl.TriangleStrip, 0, 4);
-        MacGl.BindVertexArray(0);
-        MacGl.BindTexture(MacGl.Texture2D, 0);
-        MacGl.UseProgram(0);
-    }
-
-    private void ReleaseRenderResources()
-    {
-        if (_fboTexture != 0)
-        {
-            MacGl.DeleteTextures(1, in _fboTexture);
-            _fboTexture = 0;
-        }
-
-        if (_fboDepth != 0)
-        {
-            MacGl.DeleteRenderbuffers(1, in _fboDepth);
-            _fboDepth = 0;
-        }
-
-        if (_fbo != 0)
-        {
-            MacGl.DeleteFramebuffers(1, in _fbo);
-            _fbo = 0;
-        }
-
-        if (_vao != 0)
-        {
-            MacGl.DeleteVertexArrays(1, in _vao);
-            _vao = 0;
-        }
-
-        if (_program != 0)
-        {
-            MacGl.DeleteProgram(_program);
-            _program = 0;
-        }
-
-        _fboSize = default;
     }
 
     private void ScheduleNextFrame()
