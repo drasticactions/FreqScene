@@ -1,8 +1,6 @@
 using System.Collections.ObjectModel;
-using Avalonia.Threading;
 using FreqScene.Remote.Server;
 using ProjectMDotNet;
-using ProjectMDotNet.Avalonia;
 
 namespace FreqScene;
 
@@ -84,6 +82,7 @@ public sealed class VisualizerCoordinator : IDisposable
                 ApplyGain(samples);
                 _control?.AddPcm(samples, AudioChannels.Stereo);
                 _remoteSink?.AddPcm(samples);
+                ReportLevel(samples);
             }
         });
         _synthetic.Start();
@@ -96,6 +95,10 @@ public sealed class VisualizerCoordinator : IDisposable
 
         _loaded = true;
     }
+
+    public IUiDispatcher UiDispatcher { get; set; } = InlineUiDispatcher.Instance;
+
+    public Action<float>? PcmLevel { get; set; }
 
     /// <summary>All selectable audio sources (synthetic + capture devices).</summary>
     public IReadOnlyList<string> AudioSources { get; }
@@ -638,7 +641,7 @@ public sealed class VisualizerCoordinator : IDisposable
         }
         else
         {
-            _presetTimer = new Timer(_ => Dispatcher.UIThread.Post(AdvanceDetached), null, period, period);
+            _presetTimer = new Timer(_ => UiDispatcher.Post(AdvanceDetached), null, period, period);
         }
     }
 
@@ -756,6 +759,7 @@ public sealed class VisualizerCoordinator : IDisposable
                 ApplyGain(samples);
                 _control?.AddPcm(samples, AudioChannels.Stereo);
                 _remoteSink?.AddPcm(samples);
+                ReportLevel(samples);
             });
             _capture.Start();
             return true;
@@ -945,9 +949,9 @@ public sealed class VisualizerCoordinator : IDisposable
     private void SetCurrentIndex(int index)
     {
         _currentIndex = index;
-        if (!Dispatcher.UIThread.CheckAccess())
+        if (!UiDispatcher.CheckAccess())
         {
-            Dispatcher.UIThread.Post(() => ApplyCurrentIndex(index));
+            UiDispatcher.Post(() => ApplyCurrentIndex(index));
             return;
         }
 
@@ -998,6 +1002,38 @@ public sealed class VisualizerCoordinator : IDisposable
         {
             samples[i] = Math.Clamp(samples[i] * gain, -1.0f, 1.0f);
         }
+    }
+
+    private void ReportLevel(float[] samples)
+    {
+        if (PcmLevel is not { } sink)
+        {
+            return;
+        }
+
+        var peak = 0f;
+        foreach (var sample in samples)
+        {
+            peak = Math.Max(peak, Math.Abs(sample));
+        }
+
+        sink(Math.Min(peak, 1f));
+    }
+
+    private void ReportLevel(short[] samples)
+    {
+        if (PcmLevel is not { } sink)
+        {
+            return;
+        }
+
+        var peak = 0;
+        foreach (var sample in samples)
+        {
+            peak = Math.Max(peak, Math.Abs((int)sample));
+        }
+
+        sink(Math.Min(peak / 32768f, 1f));
     }
 
     private void ApplyGain(short[] samples)

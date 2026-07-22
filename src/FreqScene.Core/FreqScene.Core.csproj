@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
+    <ProjectReference Include="../ProjectMDotNet/ProjectMDotNet.csproj" />
+    <ProjectReference Include="../FreqScene.Remote.Server/FreqScene.Remote.Server.csproj" />
+    <ProjectReference Include="../FreqScene.Remote.Client/FreqScene.Remote.Client.csproj" />
+  </ItemGroup>
+</Project>

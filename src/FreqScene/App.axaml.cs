@@ -58,7 +58,7 @@ public partial class App : Application
                 _remoteManager?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
                 _coordinator?.Dispose();
             };
-            _coordinator = new VisualizerCoordinator();
+            _coordinator = new VisualizerCoordinator { UiDispatcher = AvaloniaUiDispatcher.Instance };
             _settings = SettingsStore.Load();
             _settings.RenderScalePercent = QualityOptions.NormalizeRenderScale(_settings.RenderScalePercent);
             _settings.FrameRateCap = QualityOptions.NormalizeFrameRate(_settings.FrameRateCap);

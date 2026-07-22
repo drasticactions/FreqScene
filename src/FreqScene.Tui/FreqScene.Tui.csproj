@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>FreqScene.Tui</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Terminal.Gui" />
+    <ProjectReference Include="../FreqScene.Core/FreqScene.Core.csproj" />
+  </ItemGroup>
+</Project>

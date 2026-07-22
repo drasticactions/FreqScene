@@ -22,4 +22,6 @@ public sealed partial class PresetEntry : ObservableObject
     public string Name { get; }
 
     public string Directory { get; }
+
+    public override string ToString() => IsPlaying ? $"▶ {Name}" : $"  {Name}";
 }
