@@ -10,10 +10,10 @@ public static class BonjourResolver
 {
     public static Task<Uri?> ResolveAsync(NSNetService service, double timeoutSeconds = 5)
     {
-        var completion = new TaskCompletionSource<Uri?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        void OnResolved(object? sender, EventArgs e) => completion.TrySetResult(ToUri(service));
-        void OnFailed(object? sender, NSNetServiceErrorEventArgs e) => completion.TrySetResult(null);
+        void OnResolved(object? sender, EventArgs e) => completion.TrySetResult(true);
+        void OnFailed(object? sender, NSNetServiceErrorEventArgs e) => completion.TrySetResult(false);
 
         service.AddressResolved += OnResolved;
         service.ResolveFailure += OnFailed;
@@ -23,8 +23,8 @@ public static class BonjourResolver
         {
             service.AddressResolved -= OnResolved;
             service.ResolveFailure -= OnFailed;
-            return task.Result;
-        });
+            return task.Result ? SelectReachableAsync(service) : Task.FromResult<Uri?>(null);
+        }).Unwrap();
     }
 
     /// <summary>Re-resolves a server by its Bonjour instance name, for reconnect after an address change.</summary>
@@ -46,7 +46,7 @@ public static class BonjourResolver
         }
     }
 
-    private static Uri? ToUri(NSNetService service)
+    private static async Task<Uri?> SelectReachableAsync(NSNetService service)
     {
         var port = (int)service.Port;
         if (port <= 0)
@@ -54,46 +54,89 @@ public static class BonjourResolver
             return null;
         }
 
-        // Prefer the numeric address Bonjour already resolved; dialing the .local hostname
-        // again through the managed socket stack is a second, independent point of failure.
-        if (PickAddress(service) is { } address)
+        var candidates = CollectAddresses(service);
+        if (await ProbeAsync(candidates, port).ConfigureAwait(false) is { } reachable)
         {
-            var host = address.AddressFamily == AddressFamily.InterNetworkV6 ? $"[{address}]" : address.ToString();
-            return new Uri($"http://{host}:{port}");
+            return MakeUri(reachable, port);
+        }
+
+        if (candidates.Count > 0)
+        {
+            return MakeUri(candidates[0], port);
         }
 
         var hostName = service.HostName;
         return string.IsNullOrEmpty(hostName) ? null : new Uri($"http://{hostName.TrimEnd('.')}:{port}");
     }
 
-    private static IPAddress? PickAddress(NSNetService service)
+    private static List<IPAddress> CollectAddresses(NSNetService service)
     {
-        if (service.Addresses is not { } addresses)
-        {
-            return null;
-        }
-
-        IPAddress? v6 = null;
-        foreach (var data in addresses)
+        var candidates = new List<IPAddress>();
+        var v6 = new List<IPAddress>();
+        foreach (var data in service.Addresses ?? [])
         {
             // BSD sockaddr layout: [0]=length, [1]=family, [2..3]=port (big-endian), then the address.
             var bytes = data.ToArray();
             if (bytes.Length >= 8 && bytes[1] == 2 /* AF_INET */)
             {
-                return new IPAddress(bytes.AsSpan(4, 4));
+                var candidate = new IPAddress(bytes.AsSpan(4, 4));
+                if (!candidates.Contains(candidate))
+                {
+                    candidates.Add(candidate);
+                }
             }
-
-            if (bytes.Length >= 24 && bytes[1] == 30 /* AF_INET6 (Darwin) */)
+            else if (bytes.Length >= 24 && bytes[1] == 30 /* AF_INET6 (Darwin) */)
             {
                 var candidate = new IPAddress(bytes.AsSpan(8, 16));
-                if (!candidate.IsIPv6LinkLocal)
+                if (!candidate.IsIPv6LinkLocal && !v6.Contains(candidate))
                 {
-                    v6 ??= candidate;
+                    v6.Add(candidate);
                 }
             }
         }
 
-        return v6;
+        candidates.AddRange(v6);
+        return candidates;
+    }
+
+    private static async Task<IPAddress?> ProbeAsync(List<IPAddress> candidates, int port)
+    {
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var attempts = candidates.Select(async address =>
+        {
+            using var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            await socket.ConnectAsync(address, port, cts.Token).ConfigureAwait(false);
+            return address;
+        }).ToList();
+
+        while (attempts.Count > 0)
+        {
+            var finished = await Task.WhenAny(attempts).ConfigureAwait(false);
+            attempts.Remove(finished);
+            try
+            {
+                var winner = await finished.ConfigureAwait(false);
+                await cts.CancelAsync().ConfigureAwait(false);
+                return winner;
+            }
+            catch (Exception)
+            {
+                // Unreachable candidate; keep racing the rest.
+            }
+        }
+
+        return null;
+    }
+
+    private static Uri MakeUri(IPAddress address, int port)
+    {
+        var host = address.AddressFamily == AddressFamily.InterNetworkV6 ? $"[{address}]" : address.ToString();
+        return new Uri($"http://{host}:{port}");
     }
 
     private static Task<Uri?> MainThread(Func<Task<Uri?>> work)
