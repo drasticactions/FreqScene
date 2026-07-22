@@ -83,7 +83,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake build-essential patchelf zsync \
-            clang zlib1g-dev \
+            clang zlib1g-dev imagemagick \
             libgl1-mesa-dev libglu1-mesa-dev
 
       - name: Resolve tag version
