@@ -5,6 +5,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using FreqScene.Remote.Server;
 
 namespace FreqScene;
 
@@ -20,8 +21,12 @@ public partial class App : Application
     private NativeMenuItem? _remoteAllowItem;
     private NativeMenuItem? _remoteBroadcastItem;
     private NativeMenuItem? _remoteStatusItem;
+    private NativeMenu? _connectMenu;
+    private NativeMenuItem? _clientStatusItem;
     private NativeMenuItem? _stopItem;
     private RemoteServerManager? _remoteManager;
+    private RemoteClientManager? _clientManager;
+    private MdnsBrowser? _mdnsBrowser;
     private VisualizerCoordinator? _coordinator;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private object? _activeWindow;
@@ -48,6 +53,8 @@ public partial class App : Application
             desktop.Exit += (_, _) =>
             {
                 (_activeWindow as INativeVisualizerWindow)?.Close();
+                _mdnsBrowser?.Dispose();
+                _clientManager?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
                 _remoteManager?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
                 _coordinator?.Dispose();
             };
@@ -70,6 +77,19 @@ public partial class App : Application
             if (_settings.AllowRemoteConnections)
             {
                 _ = _remoteManager.ApplyAsync();
+            }
+
+            _clientManager = new RemoteClientManager(_coordinator);
+            _clientManager.StateChanged += () => Dispatcher.UIThread.Post(UpdateClientStatus);
+            _clientManager.StatusChanged += message => Console.WriteLine($"[remote client] {message}");
+            try
+            {
+                _mdnsBrowser = new MdnsBrowser();
+                _mdnsBrowser.ServersChanged += () => Dispatcher.UIThread.Post(BuildConnectMenu);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[remote client] mDNS browse unavailable: {ex.Message}");
             }
 
             SetupTrayIcon(desktop);
@@ -455,15 +475,131 @@ public partial class App : Application
 
         _remoteStatusItem = new NativeMenuItem("No devices connected") { IsEnabled = false };
 
+        _connectMenu = new NativeMenu();
+        BuildConnectMenu();
+        _clientStatusItem = new NativeMenuItem("Not mirroring") { IsEnabled = false };
+
         var menu = new NativeMenu
         {
-            Items = { _remoteAllowItem, _remoteBroadcastItem, new NativeMenuItemSeparator(), _remoteStatusItem },
+            Items =
+            {
+                _remoteAllowItem, _remoteBroadcastItem, new NativeMenuItemSeparator(), _remoteStatusItem,
+                new NativeMenuItemSeparator(),
+                new NativeMenuItem("Connect to Host") { Menu = _connectMenu }, _clientStatusItem,
+            },
         };
         return new NativeMenuItem("Remote") { Menu = menu };
     }
 
+    private void BuildConnectMenu()
+    {
+        if (_connectMenu is null)
+        {
+            return;
+        }
+
+        _connectMenu.Items.Clear();
+
+        var servers = _mdnsBrowser?.Servers ?? [];
+        foreach (var server in servers)
+        {
+            if (string.Equals(server.InstanceName, _remoteManager?.ServerName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var item = new NativeMenuItem(server.IsCompatible
+                ? server.InstanceName
+                : $"{server.InstanceName} (incompatible v{server.ProtocolVersion})")
+            {
+                ToggleType = MenuItemToggleType.Radio,
+                IsEnabled = server.IsCompatible,
+                IsChecked = _clientManager?.IsActive == true &&
+                            string.Equals(_clientManager.HostName, server.InstanceName, StringComparison.OrdinalIgnoreCase),
+            };
+            var target = server;
+            item.Click += (_, _) => Dispatcher.UIThread.Post(() => ConnectToDiscovered(target));
+            _connectMenu.Items.Add(item);
+        }
+
+        if (_connectMenu.Items.Count > 0)
+        {
+            _connectMenu.Items.Add(new NativeMenuItemSeparator());
+        }
+
+        var manualItem = new NativeMenuItem("Connect to Address…");
+        manualItem.Click += (_, _) => Dispatcher.UIThread.Post(ShowConnectDialog);
+        _connectMenu.Items.Add(manualItem);
+
+        var disconnectItem = new NativeMenuItem("Disconnect") { IsEnabled = _clientManager?.IsActive == true };
+        disconnectItem.Click += (_, _) => Dispatcher.UIThread.Post(() => _ = _clientManager?.DisconnectAsync());
+        _connectMenu.Items.Add(disconnectItem);
+    }
+
+    private void ConnectToDiscovered(DiscoveredServer server)
+    {
+        StopServerForClientMode();
+        var name = server.InstanceName;
+        _ = _clientManager?.ConnectAsync(
+            server.Uri,
+            name,
+            _ => Task.FromResult(_mdnsBrowser?.Resolve(name)));
+        UpdateClientStatus();
+    }
+
+    private void ShowConnectDialog()
+    {
+        var dialog = new ConnectDialog(_settings.LastRemoteAddress);
+        dialog.ConnectRequested += (host, port) =>
+        {
+            _settings.LastRemoteAddress = $"{host}:{port}";
+            SettingsStore.Save(_settings);
+
+            StopServerForClientMode();
+            var uriHost = Uri.CheckHostName(host) == UriHostNameType.IPv6 ? $"[{host}]" : host;
+            _ = _clientManager?.ConnectAsync(new Uri($"http://{uriHost}:{port}"), $"{host}:{port}");
+            UpdateClientStatus();
+        };
+        dialog.Show();
+        dialog.Activate();
+    }
+
+    /// <summary>Client and host modes are mutually exclusive; connecting turns the server off.</summary>
+    private void StopServerForClientMode()
+    {
+        if (_settings.AllowRemoteConnections)
+        {
+            ApplyRemoteSettings(false, _settings.BroadcastServer);
+        }
+    }
+
+    private void UpdateClientStatus()
+    {
+        if (_clientStatusItem is null || _clientManager is null)
+        {
+            return;
+        }
+
+        _clientStatusItem.Header = _clientManager.State switch
+        {
+            null or Remote.Client.RemoteSessionState.Stopped => "Not mirroring",
+            Remote.Client.RemoteSessionState.Connecting => $"Connecting to “{_clientManager.HostName}”…",
+            Remote.Client.RemoteSessionState.Reconnecting => $"Reconnecting to “{_clientManager.HostName}”…",
+            _ => _clientManager.CurrentPresetName is { } preset
+                ? $"Mirroring “{_clientManager.HostName}” — {preset}"
+                : $"Mirroring “{_clientManager.HostName}”",
+        };
+        BuildConnectMenu();
+    }
+
     private void ApplyRemoteSettings(bool allow, bool broadcast)
     {
+        // Hosting and mirroring are mutually exclusive; enabling the server disconnects the client.
+        if (allow && _clientManager?.IsActive == true)
+        {
+            _ = _clientManager.DisconnectAsync();
+        }
+
         _settings.AllowRemoteConnections = allow;
         _settings.BroadcastServer = broadcast;
         if (_remoteAllowItem is not null)

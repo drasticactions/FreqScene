@@ -8,7 +8,13 @@
     <Panel>
     <TabControl Margin="4">
     <TabItem Header="Playlist">
-    <DockPanel Margin="8">
+    <DockPanel>
+    <Border DockPanel.Dock="Top" IsVisible="{Binding IsMirroring}"
+            Background="#33409CFF" CornerRadius="4" Padding="8,4" Margin="8,8,8,0">
+        <TextBlock Text="Mirroring a remote host — playlist and playback controls are disabled."
+                   Opacity="0.9" />
+    </Border>
+    <DockPanel Margin="8" IsEnabled="{Binding !IsMirroring}">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
             <TextBox Width="200"
                      PlaceholderText="Search"
@@ -99,6 +105,7 @@
                 <DataGridTextColumn Header="Directory" Binding="{Binding Directory, x:DataType=local:PresetEntry}" Width="3*" />
             </DataGrid.Columns>
         </DataGrid>
+    </DockPanel>
     </DockPanel>
     </TabItem>
 

@@ -21,6 +21,8 @@ public sealed class AppSettings
     public int RemotePort { get; set; } = Remote.RemoteProtocol.DefaultPort;
 
     public string? ServerDisplayName { get; set; }
+
+    public string? LastRemoteAddress { get; set; }
 }
 
 public static class QualityOptions

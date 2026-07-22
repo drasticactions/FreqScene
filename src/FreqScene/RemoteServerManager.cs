@@ -15,6 +15,8 @@ public sealed class RemoteServerManager(VisualizerCoordinator coordinator, AppSe
 
     public int ClientCount => _server?.Broadcaster.ClientCount ?? 0;
 
+    public string? ServerName => _server?.Broadcaster.ServerName;
+
     /// <summary>Reconciles the running server/advertiser with the current settings.</summary>
     public Task ApplyAsync() => _applyTask = ApplyAfterAsync(_applyTask, stopAll: false);
 

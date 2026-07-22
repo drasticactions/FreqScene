@@ -36,10 +36,15 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
     [ObservableProperty]
     private bool _importIndeterminate = true;
 
+    [ObservableProperty]
+    private bool _isMirroring;
+
     public PlaylistEditorViewModel(VisualizerCoordinator coordinator)
     {
         _coordinator = coordinator;
         _items = coordinator.Presets;
+        _isMirroring = coordinator.IsMirroring;
+        coordinator.MirroringChanged += OnMirroringChanged;
         coordinator.Presets.CollectionChanged += OnPresetsChanged;
         _filterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         _filterTimer.Tick += OnFilterTick;
@@ -137,8 +142,12 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
     {
         _filterTimer.Stop();
         _filterTimer.Tick -= OnFilterTick;
+        _coordinator.MirroringChanged -= OnMirroringChanged;
         _coordinator.Presets.CollectionChanged -= OnPresetsChanged;
     }
+
+    private void OnMirroringChanged(bool mirroring) =>
+        Dispatcher.UIThread.Post(() => IsMirroring = mirroring);
 
     partial void OnSearchTextChanged(string value)
     {

@@ -48,6 +48,8 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
 
     public string? ServerName { get; private set; }
 
+    public string? CurrentPresetName { get; private set; }
+
     public long DroppedChunks => Interlocked.Read(ref _droppedChunks);
 
     public event Action<RemoteSessionState>? StateChanged;
@@ -189,6 +191,8 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
             {
                 return;
             }
+
+            CurrentPresetName = preset.Name;
 
             // Latin-1 keeps every byte intact; .milk files predate any encoding guarantees.
             PresetReceived?.Invoke(Encoding.Latin1.GetString(content), hardCut);

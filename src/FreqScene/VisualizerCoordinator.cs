@@ -31,6 +31,8 @@ public sealed class VisualizerCoordinator : IDisposable
     private int _renderScalePercent = QualityOptions.DefaultRenderScalePercent;
     private int _frameRateCap = QualityOptions.DefaultFrameRateCap;
     private volatile IRemoteSink? _remoteSink;
+    private volatile bool _mirroring;
+    private string? _mirrorPresetContent;
     private PresetEntry? _current;
     private int _currentIndex = -1;
     private bool _loaded;
@@ -124,6 +126,72 @@ public sealed class VisualizerCoordinator : IDisposable
 
     public bool Stopped => _stopped;
 
+    public bool IsMirroring => _mirroring;
+
+    public event Action<bool>? MirroringChanged;
+
+    public void EnterMirrorMode()
+    {
+        if (_mirroring)
+        {
+            return;
+        }
+
+        _mirroring = true;
+        _presetTimer?.Dispose();
+        _presetTimer = null;
+        if (_control is { } control)
+        {
+            control.PresetLocked = true;
+        }
+
+        UpdateAudioPipeline();
+        MirroringChanged?.Invoke(true);
+    }
+
+    public void ExitMirrorMode()
+    {
+        if (!_mirroring)
+        {
+            return;
+        }
+
+        _mirroring = false;
+        _mirrorPresetContent = null;
+        if (_control is { } control)
+        {
+            control.PresetLocked = _presetLocked;
+            RebuildNativePlaylist();
+        }
+
+        if (_stopped)
+        {
+            RestartPresetTimer();
+        }
+
+        UpdateAudioPipeline();
+        MirroringChanged?.Invoke(false);
+    }
+
+    public void MirrorPcm(float[] samples)
+    {
+        if (_mirroring)
+        {
+            _control?.AddPcm(samples, AudioChannels.Stereo);
+        }
+    }
+
+    public void MirrorPreset(string content, bool hardCut)
+    {
+        if (!_mirroring)
+        {
+            return;
+        }
+
+        _mirrorPresetContent = content;
+        _control?.Instance?.LoadPresetData(content, smoothTransition: !hardCut);
+    }
+
     public void SetStopped(bool stopped)
     {
         if (_stopped == stopped)
@@ -132,7 +200,7 @@ public sealed class VisualizerCoordinator : IDisposable
         }
 
         _stopped = stopped;
-        if (stopped)
+        if (stopped && !_mirroring)
         {
             RestartPresetTimer();
         }
@@ -181,7 +249,7 @@ public sealed class VisualizerCoordinator : IDisposable
         set
         {
             _presetLocked = value;
-            if (_control is { } control)
+            if (_control is { } control && !_mirroring)
             {
                 control.PresetLocked = value;
             }
@@ -248,7 +316,7 @@ public sealed class VisualizerCoordinator : IDisposable
     {
         _control = control;
         control.PresetDuration = _presetDuration;
-        control.PresetLocked = _presetLocked;
+        control.PresetLocked = _mirroring || _presetLocked;
         control.MaxFrameRate = _frameRateCap;
 
         if (_wired.Add(control))
@@ -273,6 +341,11 @@ public sealed class VisualizerCoordinator : IDisposable
 
     public void NextPreset()
     {
+        if (_mirroring)
+        {
+            return;
+        }
+
         if (_control?.Playlist is { } playlist)
         {
             playlist.PlayNext();
@@ -285,6 +358,11 @@ public sealed class VisualizerCoordinator : IDisposable
 
     public void PreviousPreset()
     {
+        if (_mirroring)
+        {
+            return;
+        }
+
         if (_control?.Playlist is { } playlist)
         {
             playlist.PlayPrevious();
@@ -536,7 +614,7 @@ public sealed class VisualizerCoordinator : IDisposable
 
     public void PlayAt(int index)
     {
-        if (index < 0 || index >= Presets.Count)
+        if (_mirroring || index < 0 || index >= Presets.Count)
         {
             return;
         }
@@ -566,7 +644,7 @@ public sealed class VisualizerCoordinator : IDisposable
 
     private void AdvanceDetached()
     {
-        if (!_stopped || _presetLocked)
+        if (!_stopped || _presetLocked || _mirroring)
         {
             return;
         }
@@ -644,7 +722,7 @@ public sealed class VisualizerCoordinator : IDisposable
     {
         lock (_audioLock)
         {
-            var suspend = _stopped && _remoteSink is null;
+            var suspend = _mirroring || (_stopped && _remoteSink is null);
             if (suspend == _audioSuspended)
             {
                 return;
@@ -720,6 +798,18 @@ public sealed class VisualizerCoordinator : IDisposable
         playlist.Shuffle = _shuffle;
 
         ApplyTextureSearchPaths(reloadCurrent: false);
+
+        if (_mirroring)
+        {
+            control.PresetLocked = true;
+            if (_mirrorPresetContent is { } content)
+            {
+                control.Instance?.LoadPresetData(content, smoothTransition: false);
+            }
+
+            return;
+        }
+
         RebuildNativePlaylist();
     }
 
