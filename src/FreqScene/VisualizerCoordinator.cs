@@ -16,10 +16,15 @@ public sealed class VisualizerCoordinator : IDisposable
     private readonly HashSet<IVisualizerHost> _wired = [];
     private readonly HashSet<string> _paths = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _textureFolders = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Lock _audioLock = new();
     private CaptureAudioSource? _capture;
     private IVisualizerHost? _control;
     private volatile float _gain = 1.0f;
     private volatile bool _syntheticEnabled = true;
+    private volatile bool _stopped;
+    private volatile bool _audioSuspended;
+    private Timer? _presetTimer;
+    private Random? _shuffleRandom;
     private bool _shuffle;
     private bool _presetLocked;
     private double _presetDuration = 30;
@@ -72,7 +77,7 @@ public sealed class VisualizerCoordinator : IDisposable
 
         _synthetic = new SyntheticAudioSource(samples =>
         {
-            if (_syntheticEnabled)
+            if (_syntheticEnabled && !_audioSuspended)
             {
                 ApplyGain(samples);
                 _control?.AddPcm(samples, AudioChannels.Stereo);
@@ -110,7 +115,34 @@ public sealed class VisualizerCoordinator : IDisposable
     public IRemoteSink? RemoteSink
     {
         get => _remoteSink;
-        set => _remoteSink = value;
+        set
+        {
+            _remoteSink = value;
+            UpdateAudioPipeline();
+        }
+    }
+
+    public bool Stopped => _stopped;
+
+    public void SetStopped(bool stopped)
+    {
+        if (_stopped == stopped)
+        {
+            return;
+        }
+
+        _stopped = stopped;
+        if (stopped)
+        {
+            RestartPresetTimer();
+        }
+        else
+        {
+            _presetTimer?.Dispose();
+            _presetTimer = null;
+        }
+
+        UpdateAudioPipeline();
     }
 
     public string? CurrentPresetPath => _current?.FullPath;
@@ -169,6 +201,11 @@ public sealed class VisualizerCoordinator : IDisposable
             if (_control is { } control)
             {
                 control.PresetDuration = value;
+            }
+
+            if (_stopped)
+            {
+                RestartPresetTimer();
             }
 
             _remoteSink?.NotifyPlaybackSettings(_presetDuration, _presetLocked);
@@ -234,9 +271,29 @@ public sealed class VisualizerCoordinator : IDisposable
         }
     }
 
-    public void NextPreset() => _control?.Playlist?.PlayNext();
+    public void NextPreset()
+    {
+        if (_control?.Playlist is { } playlist)
+        {
+            playlist.PlayNext();
+        }
+        else if (_stopped)
+        {
+            PlayDetached(NextDetachedIndex(1));
+        }
+    }
 
-    public void PreviousPreset() => _control?.Playlist?.PlayPrevious();
+    public void PreviousPreset()
+    {
+        if (_control?.Playlist is { } playlist)
+        {
+            playlist.PlayPrevious();
+        }
+        else if (_stopped)
+        {
+            PlayDetached(NextDetachedIndex(-1));
+        }
+    }
 
     public int AddPaths(IEnumerable<string> paths)
     {
@@ -479,44 +536,156 @@ public sealed class VisualizerCoordinator : IDisposable
 
     public void PlayAt(int index)
     {
-        if (index >= 0 && index < Presets.Count)
+        if (index < 0 || index >= Presets.Count)
         {
-            _control?.Playlist?.SetPosition((uint)index, hardCut: true);
+            return;
         }
+
+        if (_control?.Playlist is { } playlist)
+        {
+            playlist.SetPosition((uint)index, hardCut: true);
+        }
+        else if (_stopped)
+        {
+            PlayDetached(index);
+        }
+    }
+
+    private void RestartPresetTimer()
+    {
+        var period = TimeSpan.FromSeconds(Math.Max(_presetDuration, 1));
+        if (_presetTimer is { } timer)
+        {
+            timer.Change(period, period);
+        }
+        else
+        {
+            _presetTimer = new Timer(_ => Dispatcher.UIThread.Post(AdvanceDetached), null, period, period);
+        }
+    }
+
+    private void AdvanceDetached()
+    {
+        if (!_stopped || _presetLocked)
+        {
+            return;
+        }
+
+        PlayDetached(NextDetachedIndex(1));
+    }
+
+    /// <summary>Switches presets without a native playlist (host stopped): remote-only.</summary>
+    private void PlayDetached(int index)
+    {
+        if (index < 0 || index >= Presets.Count)
+        {
+            return;
+        }
+
+        SetCurrentIndex(index);
+        var path = Presets[index].FullPath;
+        _remoteSink?.NotifyPresetChanged(path);
+        StatusChanged?.Invoke($"[{index}] {Path.GetFileNameWithoutExtension(path)}");
+
+        if (_stopped)
+        {
+            RestartPresetTimer();
+        }
+    }
+
+    private int NextDetachedIndex(int step)
+    {
+        var count = Presets.Count;
+        if (count == 0)
+        {
+            return -1;
+        }
+
+        if (_shuffle && count > 1)
+        {
+            _shuffleRandom ??= new Random();
+            int next;
+            do
+            {
+                next = _shuffleRandom.Next(count);
+            }
+            while (next == _currentIndex);
+            return next;
+        }
+
+        var current = Math.Max(_currentIndex, 0);
+        return (((current + step) % count) + count) % count;
     }
 
     public bool SelectAudioSource(string name)
     {
-        _preferredAudioSource = name;
-        _capture?.Dispose();
-        _capture = null;
-        _syntheticEnabled = name == SyntheticSourceName;
-        if (_syntheticEnabled)
+        lock (_audioLock)
         {
+            _preferredAudioSource = name;
+            _capture?.Dispose();
+            _capture = null;
+            _syntheticEnabled = name == SyntheticSourceName;
+
+            if (_syntheticEnabled || _audioSuspended || TryStartCapture(name))
+            {
+                SelectedAudioSource = name;
+                Save();
+                return true;
+            }
+
+            _syntheticEnabled = true;
             SelectedAudioSource = SyntheticSourceName;
             Save();
-            return true;
+            return false;
         }
+    }
 
+    private void UpdateAudioPipeline()
+    {
+        lock (_audioLock)
+        {
+            var suspend = _stopped && _remoteSink is null;
+            if (suspend == _audioSuspended)
+            {
+                return;
+            }
+
+            _audioSuspended = suspend;
+            if (suspend)
+            {
+                _capture?.Dispose();
+                _capture = null;
+            }
+            else if (!_syntheticEnabled && _capture is null && !TryStartCapture(_preferredAudioSource))
+            {
+                _syntheticEnabled = true;
+                SelectedAudioSource = SyntheticSourceName;
+            }
+        }
+    }
+
+    private bool TryStartCapture(string name)
+    {
         try
         {
             _capture = new CaptureAudioSource(name, samples =>
             {
+                if (_audioSuspended)
+                {
+                    return;
+                }
+
                 ApplyGain(samples);
                 _control?.AddPcm(samples, AudioChannels.Stereo);
                 _remoteSink?.AddPcm(samples);
             });
             _capture.Start();
-            SelectedAudioSource = name;
-            Save();
             return true;
         }
         catch (InvalidOperationException ex)
         {
+            _capture = null;
             StatusChanged?.Invoke(ex.Message);
-            _syntheticEnabled = true;
-            SelectedAudioSource = SyntheticSourceName;
-            Save();
             return false;
         }
     }
@@ -525,6 +694,8 @@ public sealed class VisualizerCoordinator : IDisposable
     {
         Save();
         _control = null;
+        _presetTimer?.Dispose();
+        _presetTimer = null;
         _synthetic.Dispose();
         _capture?.Dispose();
         _capture = null;

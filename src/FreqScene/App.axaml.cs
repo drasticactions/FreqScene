@@ -20,6 +20,7 @@ public partial class App : Application
     private NativeMenuItem? _remoteAllowItem;
     private NativeMenuItem? _remoteBroadcastItem;
     private NativeMenuItem? _remoteStatusItem;
+    private NativeMenuItem? _stopItem;
     private RemoteServerManager? _remoteManager;
     private VisualizerCoordinator? _coordinator;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
@@ -58,6 +59,10 @@ public partial class App : Application
             _coordinator.RenderScalePercent = _settings.RenderScalePercent;
             _coordinator.FrameRateCap = _settings.FrameRateCap;
             _coordinator.WallpaperTransparency = _settings.WallpaperTransparency;
+            if (_settings.VisualizerStopped)
+            {
+                _coordinator.SetStopped(true);
+            }
 
             _remoteManager = new RemoteServerManager(_coordinator, _settings);
             _remoteManager.ClientsChanged += () => Dispatcher.UIThread.Post(UpdateRemoteStatus);
@@ -68,7 +73,10 @@ public partial class App : Application
             }
 
             SetupTrayIcon(desktop);
-            ApplyMode(_mode, persist: false);
+            if (!_settings.VisualizerStopped)
+            {
+                ApplyMode(_mode, persist: false);
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -93,6 +101,45 @@ public partial class App : Application
         mode = DisplayModes.Normalize(mode);
         _mode = mode;
 
+        CloseActiveWindow();
+
+        if (!_settings.VisualizerStopped)
+        {
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            {
+                INativeVisualizerWindow native = OperatingSystem.IsMacOS()
+                    ? new MacVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
+                    : OperatingSystem.IsWindows()
+                        ? new WindowsVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
+                        : new LinuxVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay);
+                _activeWindow = native;
+                native.Show();
+            }
+            else
+            {
+                var window = CreateMainWindow(_coordinator);
+                _activeWindow = window;
+                _desktop.MainWindow = window;
+                window.Show();
+            }
+        }
+
+        foreach (var (itemMode, item) in _modeItems)
+        {
+            item.IsChecked = itemMode == mode;
+        }
+
+        BuildDisplayMenu();
+
+        if (persist)
+        {
+            _settings.DisplayMode = mode;
+            SettingsStore.Save(_settings);
+        }
+    }
+
+    private void CloseActiveWindow()
+    {
         if (_activeWindow is Window previous)
         {
             _switchingMode = true;
@@ -110,37 +157,37 @@ public partial class App : Application
             previousNative.Close();
         }
 
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        _activeWindow = null;
+    }
+
+    private void ApplyStopped(bool stopped)
+    {
+        if (_settings.VisualizerStopped == stopped)
         {
-            INativeVisualizerWindow native = OperatingSystem.IsMacOS()
-                ? new MacVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
-                : OperatingSystem.IsWindows()
-                    ? new WindowsVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
-                    : new LinuxVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay);
-            _activeWindow = native;
-            native.Show();
+            return;
+        }
+
+        _settings.VisualizerStopped = stopped;
+        SettingsStore.Save(_settings);
+        if (_stopItem is not null)
+        {
+            _stopItem.Header = StopItemLabel();
+        }
+
+        if (stopped)
+        {
+            CloseActiveWindow();
+            _coordinator?.SetStopped(true);
         }
         else
         {
-            var window = CreateMainWindow(_coordinator);
-            _activeWindow = window;
-            _desktop.MainWindow = window;
-            window.Show();
-        }
-
-        foreach (var (itemMode, item) in _modeItems)
-        {
-            item.IsChecked = itemMode == mode;
-        }
-
-        BuildDisplayMenu();
-
-        if (persist)
-        {
-            _settings.DisplayMode = mode;
-            SettingsStore.Save(_settings);
+            _coordinator?.SetStopped(false);
+            ApplyMode(_mode, persist: false);
         }
     }
+
+    private string StopItemLabel() =>
+        _settings.VisualizerStopped ? "Start Visualization" : "Stop Visualization";
 
     private MainWindow CreateMainWindow(VisualizerCoordinator coordinator)
     {
@@ -174,9 +221,13 @@ public partial class App : Application
             desktop.Shutdown();
         };
 
+        _stopItem = new NativeMenuItem(StopItemLabel());
+        _stopItem.Click += (_, _) =>
+            Dispatcher.UIThread.Post(() => ApplyStopped(!_settings.VisualizerStopped));
+
         var menu = new NativeMenu
         {
-            Items = { audioItem, playlistItem },
+            Items = { _stopItem, new NativeMenuItemSeparator(), audioItem, playlistItem },
         };
 
         if (DisplayModes.Available.Count > 1)

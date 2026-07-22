@@ -12,6 +12,8 @@ public sealed class AppSettings
 
     public int FrameRateCap { get; set; } = QualityOptions.DefaultFrameRateCap;
 
+    public bool VisualizerStopped { get; set; }
+
     public bool AllowRemoteConnections { get; set; }
 
     public bool BroadcastServer { get; set; } = true;
