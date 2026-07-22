@@ -9,6 +9,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="ProjectMDotNet.Avalonia" />
     <InternalsVisibleTo Include="FreqScene" />
+    <InternalsVisibleTo Include="FreqScene.iOS" />
+    <InternalsVisibleTo Include="FreqScene.tvOS" />
   </ItemGroup>
 
 </Project>

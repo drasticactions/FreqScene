@@ -1,0 +1,73 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e0d03fd9c..bb918fcec 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -13,8 +13,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE YES)
+
+ # Don't export any symbols except those explicitly exported.
+ set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
+-set(CMAKE_C_VISIBILITY_PRESET hidden)
+-set(CMAKE_CXX_VISIBILITY_PRESET hidden)
++set(CMAKE_C_VISIBILITY_PRESET default)
++set(CMAKE_CXX_VISIBILITY_PRESET default)
+
+ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+diff --git a/src/libprojectM/Renderer/Platform/GLResolver.cpp b/src/libprojectM/Renderer/Platform/GLResolver.cpp
+index 21eb4acaa..fc327c70b 100644
+--- a/src/libprojectM/Renderer/Platform/GLResolver.cpp
++++ b/src/libprojectM/Renderer/Platform/GLResolver.cpp
+@@ -399,7 +399,10 @@ auto GLResolver::Initialize(UserResolver resolver, void* userData) -> bool
+
+     lock.lock();
+
+-    // Precondition: caller must have a current context on this thread.
++    // Precondition: caller must have a current context on this thread. A
++    // user-supplied resolver implies the caller guarantees this (there may be
++    // no probeable platform context API at all, e.g. EAGL on iOS).
++    if (state.m_userResolver == nullptr)
+     {
+         std::string reason;
+         if (!HasCurrentContext(currentContext, reason))
+@@ -460,8 +463,10 @@ auto GLResolver::Initialize(UserResolver resolver, void* userData) -> bool
+         LOG_INFO(diag);
+     }
+
+-    // The process needs to yield a backend. Unlikely to happen if a context was current.
+-    if (state.m_backend == Backend::None)
++    // The process needs to yield a backend. Unlikely to happen if a context
++    // was current. With a user resolver, Backend::None is acceptable — all
++    // symbols resolve through the user callback (e.g. EAGL on iOS).
++    if (state.m_backend == Backend::None && state.m_userResolver == nullptr)
+     {
+         m_loaded = false;
+
+@@ -553,6 +558,13 @@ auto GLResolver::VerifyBeforeUse(std::string& reason) const -> bool
+
+ auto GLResolver::VerifyBeforeUse(const ResolverState& state, std::string& reason) -> bool
+ {
++    // A user-supplied resolver implies the caller guarantees a current
++    // context; there is no platform backend to gate on (e.g. EAGL on iOS).
++    if (state.m_userResolver != nullptr)
++    {
++        return true;
++    }
++
+     // Gate to detected backend.
+     const auto currentContext = ProbeCurrentContext(state);
+     const bool backendOk = VerifyBackendIsCurrent(state.m_backend, currentContext);
+diff --git a/src/libprojectM/Renderer/Platform/GladLoader.cpp b/src/libprojectM/Renderer/Platform/GladLoader.cpp
+index 0cb30ae46..0978a829f 100644
+--- a/src/libprojectM/Renderer/Platform/GladLoader.cpp
++++ b/src/libprojectM/Renderer/Platform/GladLoader.cpp
+@@ -47,8 +47,8 @@ auto GladLoader::CheckGLRequirements() -> bool
+
+     glCheck
+         .WithApi(GLApi::OpenGLES)
+-        .WithMinimumVersion(3, 2)
+-        .WithMinimumShaderLanguageVersion(3, 20)
++        .WithMinimumVersion(3, 0)
++        .WithMinimumShaderLanguageVersion(3, 0)
+         //        .WithRequiredExtension("GL_OES_texture_float")
+         //        .WithRequiredExtension("GL_OES_standard_derivatives")
+         .WithRequireCoreProfile(false);

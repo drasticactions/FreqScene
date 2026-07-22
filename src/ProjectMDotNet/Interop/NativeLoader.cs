@@ -20,7 +20,7 @@ internal static class NativeLoader
 
     private static IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
-        if (OperatingSystem.IsIOS() &&
+        if ((OperatingSystem.IsIOS() || OperatingSystem.IsTvOS()) &&
             libraryName is CoreLibrary or PlaylistLibrary)
         {
             return NativeLibrary.GetMainProgramHandle();
