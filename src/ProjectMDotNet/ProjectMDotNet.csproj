@@ -11,6 +11,7 @@
     <InternalsVisibleTo Include="FreqScene" />
     <InternalsVisibleTo Include="FreqScene.iOS" />
     <InternalsVisibleTo Include="FreqScene.tvOS" />
+    <InternalsVisibleTo Include="FreqScene.Android" />
   </ItemGroup>
 
 </Project>
