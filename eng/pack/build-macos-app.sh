@@ -270,7 +270,6 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$APP_VERSION</string>
     $ICON_KEY
     <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
-    <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
