@@ -7,7 +7,7 @@
 #   2. `dotnet publish` self-contained + trimmed for each RID.
 #   3. Merge the two publish trees into one universal .app (lipo every Mach-O,
 #      copy arch-independent managed assemblies once).
-#   4. Write Info.plist + entitlements, copy the icon.
+#   4. Write Info.plist + entitlements, generate AppIcon.icns from the PNG asset.
 #   5. Sign per the chosen flow, optionally notarize + staple.
 #   6. Emit a .zip.
 #
@@ -50,7 +50,7 @@ OUTPUT_DIR="$REPO_ROOT/artifacts/pack"
 
 APP_NAME="FreqScene"                 # display name + apphost/assembly name
 PROJECT="$REPO_ROOT/src/FreqScene/FreqScene.csproj"
-ICON_SRC="$REPO_ROOT/external/projectm/src/sdl-test-ui/macOS/AppIcon.icns"
+ICON_SRC="$REPO_ROOT/eng/pack/assets/FreqScene.png"
 MIN_MACOS="11.0"
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -92,7 +92,7 @@ if [[ "$SIGN_FLOW" == "notarize" ]]; then
   [[ -n "$NOTARY_PROFILE" ]] || die "--notary-profile (or \$NOTARY_PROFILE) is required for the 'notarize' flow"
 fi
 
-for tool in dotnet lipo codesign iconutil ditto plutil; do
+for tool in dotnet lipo codesign iconutil sips ditto plutil; do
   command -v "$tool" >/dev/null || die "required tool not found on PATH: $tool"
 done
 
@@ -248,8 +248,31 @@ chmod +x "$MACOS_DIR/$APP_NAME"
 # ---------------------------------------------------------------------------
 # 4. Info.plist, icon, entitlements
 # ---------------------------------------------------------------------------
+# Generate a multi-resolution AppIcon.icns from the shared 1024x1024 PNG master
+# (the same source Linux/Windows use), rather than shipping a prebuilt .icns.
+# sips downscales the master into each iconset slot (16 through 512@2x=1024);
+# iconutil packs them. The 1024 source feeds the largest Retina slot at native
+# resolution, so no size is upscaled.
+build_icns() {
+  local src="$1" out="$2"
+  local iconset; iconset="$(mktemp -d)/AppIcon.iconset"
+  mkdir -p "$iconset"
+  local sizes=(16 32 32 64 128 256 256 512 512 1024)
+  local names=(
+    icon_16x16.png icon_16x16@2x.png icon_32x32.png icon_32x32@2x.png
+    icon_128x128.png icon_128x128@2x.png icon_256x256.png icon_256x256@2x.png
+    icon_512x512.png icon_512x512@2x.png
+  )
+  local i
+  for i in "${!sizes[@]}"; do
+    sips -z "${sizes[$i]}" "${sizes[$i]}" "$src" --out "$iconset/${names[$i]}" >/dev/null
+  done
+  iconutil -c icns "$iconset" -o "$out"
+  rm -rf "$(dirname "$iconset")"
+}
+
 if [[ -f "$ICON_SRC" ]]; then
-  cp "$ICON_SRC" "$RES_DIR/AppIcon.icns"
+  build_icns "$ICON_SRC" "$RES_DIR/AppIcon.icns"
   ICON_KEY="<key>CFBundleIconFile</key><string>AppIcon</string>"
 else
   info "icon not found at $ICON_SRC — shipping without a custom icon"

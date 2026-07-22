@@ -86,6 +86,16 @@ for tool in dotnet file find; do
   command -v "$tool" >/dev/null || die "required tool not found on PATH: $tool"
 done
 
+# ImageMagick is used to downscale the 1024x1024 icon master to the 256x256 the
+# AppDir/hicolor slots expect. Resolve it once here so the build fails fast.
+if command -v magick >/dev/null; then
+  MAGICK=magick
+elif command -v convert >/dev/null; then
+  MAGICK=convert
+else
+  die "ImageMagick not found on PATH (need 'magick' or 'convert') to resize the icon"
+fi
+
 [[ -f "$ICON_SRC" ]] || die "icon not found at $ICON_SRC"
 
 # ---------------------------------------------------------------------------
@@ -205,12 +215,14 @@ info "assembling $APP_NAME.AppDir ($IMG_ARCH)"
 cp -a "$PUBLISH_DIR/." "$APPDIR/usr/bin/"
 chmod +x "$APPDIR/usr/bin/$APP_NAME"
 
-# Icon: AppDir root (named after the desktop Icon key) + the freedesktop hicolor
-# path so desktop environments can theme it once the AppImage is integrated.
-cp "$ICON_SRC" "$APPDIR/$APP_NAME.png"
+# Icon: AppDir root (named after the desktop Icon key, becomes the AppImage's
+# .DirIcon) + the freedesktop hicolor path so desktop environments can theme it
+# once the AppImage is integrated. Both want a 256x256 image, so downscale the
+# shared 1024x1024 master ($MAGICK resolved to magick/convert during preflight).
 ICON_INSTALL="$APPDIR/usr/share/icons/hicolor/256x256/apps"
 mkdir -p "$ICON_INSTALL"
-cp "$ICON_SRC" "$ICON_INSTALL/$APP_NAME.png"
+"$MAGICK" "$ICON_SRC" -resize 256x256 "$ICON_INSTALL/$APP_NAME.png"
+cp "$ICON_INSTALL/$APP_NAME.png" "$APPDIR/$APP_NAME.png"
 
 # .desktop entry (AppDir root + the canonical applications path).
 DESKTOP_REL="$APP_NAME.desktop"
