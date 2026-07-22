@@ -10,7 +10,7 @@ CI Builds are unsigned. On macOS, you will need to clear the quarantine on the a
 xattr -rd com.apple.quarantine /path/to/bundle.app
 ```
 
-On Windows, you will need the Microsoft Visual C++ Redistributable installed, you can get it [[here](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#latest-supported-redistributable-version)]. If you don't have it, the app will launch but you won't see visualizations.
+On Windows, you will need the Microsoft Visual C++ Redistributable installed, you can get it [here](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#latest-supported-redistributable-version). If you don't have it, the app will launch but you won't see visualizations.
 
 Linux builds are bundled as AppImage. These require FUSE to run.
 
