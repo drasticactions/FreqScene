@@ -1,10 +1,9 @@
-using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Threading;
 
 namespace FreqScene;
@@ -497,20 +496,7 @@ public partial class App : Application
 
     private static WindowIcon CreateTrayIconImage()
     {
-        var bitmap = new RenderTargetBitmap(new PixelSize(32, 32), new Vector(96, 96));
-        using (var context = bitmap.CreateDrawingContext())
-        {
-            context.DrawEllipse(new SolidColorBrush(Color.FromRgb(20, 20, 28)), null, new Point(16, 16), 15, 15);
-            var text = new FormattedText(
-                "F",
-                CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight,
-                new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold),
-                18,
-                new SolidColorBrush(Color.FromRgb(90, 220, 130)));
-            context.DrawText(text, new Point(16 - (text.Width / 2), 16 - (text.Height / 2)));
-        }
-
-        return new WindowIcon(bitmap);
+        using var stream = AssetLoader.Open(new Uri("avares://FreqScene/Assets/TrayIcon.png"));
+        return new WindowIcon(new Bitmap(stream));
     }
 }

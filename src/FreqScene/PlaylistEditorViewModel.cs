@@ -126,6 +126,13 @@ public sealed partial class PlaylistEditorViewModel : ObservableObject, IDisposa
 
     public void EndImport() => IsImporting = false;
 
+    public void ClearFilter()
+    {
+        SearchText = string.Empty;
+        _filterTimer.Stop();
+        ApplyFilter();
+    }
+
     public void Dispose()
     {
         _filterTimer.Stop();

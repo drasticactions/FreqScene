@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
@@ -49,6 +50,11 @@ public partial class PlaylistEditorWindow : Window
         else if (e.KeyModifiers.HasFlag(KeyModifiers.Alt) && e.Key is Key.Up or Key.Down)
         {
             MoveSelected(e.Key == Key.Up ? -1 : 1);
+            e.Handled = true;
+        }
+        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.L)
+        {
+            ScrollToCurrent();
             e.Handled = true;
         }
 
@@ -152,6 +158,26 @@ public partial class PlaylistEditorWindow : Window
         {
             _coordinator.PlayAt(_coordinator.Presets.IndexOf(entry));
         }
+    }
+
+    private void OnGoToCurrent(object? sender, RoutedEventArgs e) => ScrollToCurrent();
+
+    private void ScrollToCurrent()
+    {
+        var index = _coordinator.CurrentIndex;
+        if (index < 0 || index >= _coordinator.Presets.Count)
+        {
+            return;
+        }
+
+        var entry = _coordinator.Presets[index];
+        if (_viewModel.Items is IList items && !items.Contains(entry))
+        {
+            _viewModel.ClearFilter();
+        }
+
+        PlaylistGrid.SelectedItem = entry;
+        PlaylistGrid.ScrollIntoView(entry, null);
     }
 
     private void OnGridKeyDown(object? sender, KeyEventArgs e)

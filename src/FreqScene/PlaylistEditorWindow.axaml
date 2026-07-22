@@ -3,7 +3,7 @@
         xmlns:local="using:FreqScene"
         x:Class="FreqScene.PlaylistEditorWindow"
         x:DataType="local:PlaylistEditorViewModel"
-        Width="820" Height="560"
+        Width="840" Height="560"
         Title="FreqScene — Playlist">
     <Panel>
     <TabControl Margin="4">
@@ -17,6 +17,10 @@
             <Button Content="Add Folder…" Click="OnAddFolder" />
             <Button Content="Remove" Click="OnRemoveSelected" />
             <Button Content="Clear" Click="OnClear" />
+            <Separator />
+            <Button Content="Now Playing"
+                    ToolTip.Tip="Scroll to the preset currently playing (Ctrl+L)"
+                    Click="OnGoToCurrent" />
             <Separator />
             <Button Content="Sort by Name" Click="OnSortByName" />
             <Button Content="Sort by Path" Click="OnSortByPath" />

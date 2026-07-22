@@ -24,6 +24,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <TrimmerRootAssembly Include="Avalonia.Controls.DataGrid" />
   </ItemGroup>
 
