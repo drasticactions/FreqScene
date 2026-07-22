@@ -11,6 +11,14 @@ public sealed class AppSettings
     public int RenderScalePercent { get; set; } = QualityOptions.DefaultRenderScalePercent;
 
     public int FrameRateCap { get; set; } = QualityOptions.DefaultFrameRateCap;
+
+    public bool AllowRemoteConnections { get; set; }
+
+    public bool BroadcastServer { get; set; } = true;
+
+    public int RemotePort { get; set; } = Remote.RemoteProtocol.DefaultPort;
+
+    public string? ServerDisplayName { get; set; }
 }
 
 public static class QualityOptions

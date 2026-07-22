@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="MagicOnion.Server" />
+    <PackageReference Include="MeaMod.DNS" />
+    <ProjectReference Include="../FreqScene.Remote/FreqScene.Remote.csproj" />
+  </ItemGroup>
+</Project>

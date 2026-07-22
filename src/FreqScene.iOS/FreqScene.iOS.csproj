@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../ProjectMDotNet/ProjectMDotNet.csproj" />
+    <ProjectReference Include="../FreqScene.Remote.Client/FreqScene.Remote.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="Exists('$(ProjectMNativeArchive)')">

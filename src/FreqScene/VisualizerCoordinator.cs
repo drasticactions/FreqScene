@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Avalonia.Threading;
+using FreqScene.Remote.Server;
 using ProjectMDotNet;
 using ProjectMDotNet.Avalonia;
 
@@ -24,6 +25,7 @@ public sealed class VisualizerCoordinator : IDisposable
     private double _presetDuration = 30;
     private int _renderScalePercent = QualityOptions.DefaultRenderScalePercent;
     private int _frameRateCap = QualityOptions.DefaultFrameRateCap;
+    private volatile IRemoteSink? _remoteSink;
     private PresetEntry? _current;
     private int _currentIndex = -1;
     private bool _loaded;
@@ -74,6 +76,7 @@ public sealed class VisualizerCoordinator : IDisposable
             {
                 ApplyGain(samples);
                 _control?.AddPcm(samples, AudioChannels.Stereo);
+                _remoteSink?.AddPcm(samples);
             }
         });
         _synthetic.Start();
@@ -103,6 +106,14 @@ public sealed class VisualizerCoordinator : IDisposable
     public event Action<int>? CurrentIndexChanged;
 
     public int CurrentIndex => _currentIndex;
+
+    public IRemoteSink? RemoteSink
+    {
+        get => _remoteSink;
+        set => _remoteSink = value;
+    }
+
+    public string? CurrentPresetPath => _current?.FullPath;
 
     /// <summary>PCM gain multiplier (0..4).</summary>
     public float Gain
@@ -143,6 +154,7 @@ public sealed class VisualizerCoordinator : IDisposable
                 control.PresetLocked = value;
             }
 
+            _remoteSink?.NotifyPlaybackSettings(_presetDuration, _presetLocked);
             Save();
         }
     }
@@ -159,6 +171,7 @@ public sealed class VisualizerCoordinator : IDisposable
                 control.PresetDuration = value;
             }
 
+            _remoteSink?.NotifyPlaybackSettings(_presetDuration, _presetLocked);
             Save();
         }
     }
@@ -491,6 +504,7 @@ public sealed class VisualizerCoordinator : IDisposable
             {
                 ApplyGain(samples);
                 _control?.AddPcm(samples, AudioChannels.Stereo);
+                _remoteSink?.AddPcm(samples);
             });
             _capture.Start();
             SelectedAudioSource = name;
@@ -522,6 +536,11 @@ public sealed class VisualizerCoordinator : IDisposable
         playlist.PresetSwitched += (_, e) =>
         {
             SetCurrentIndex((int)e.Index);
+            if (playlist.GetItem(e.Index) is { } switchedPath)
+            {
+                _remoteSink?.NotifyPresetChanged(switchedPath);
+            }
+
             StatusChanged?.Invoke($"[{e.Index}] {Path.GetFileNameWithoutExtension(playlist.GetItem(e.Index)) ?? "?"}");
         };
         playlist.PresetSwitchFailed += (_, e) =>

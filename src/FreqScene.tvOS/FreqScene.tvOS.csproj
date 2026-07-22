@@ -20,12 +20,15 @@
 
   <ItemGroup>
     <ProjectReference Include="../ProjectMDotNet/ProjectMDotNet.csproj" />
+    <ProjectReference Include="../FreqScene.Remote.Client/FreqScene.Remote.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="../FreqScene.iOS/Main.cs" Link="Main.cs" />
     <Compile Include="../FreqScene.iOS/AppDelegate.cs" Link="AppDelegate.cs" />
     <Compile Include="../FreqScene.iOS/VisualizerViewController.cs" Link="VisualizerViewController.cs" />
+    <Compile Include="../FreqScene.iOS/ServerBrowserViewController.cs" Link="ServerBrowserViewController.cs" />
+    <Compile Include="../FreqScene.iOS/BonjourResolver.cs" Link="BonjourResolver.cs" />
     <Compile Include="../FreqScene.iOS/ProjectMGLView.cs" Link="ProjectMGLView.cs" />
     <Compile Include="../FreqScene.iOS/SyntheticAudioSource.cs" Link="SyntheticAudioSource.cs" />
   </ItemGroup>

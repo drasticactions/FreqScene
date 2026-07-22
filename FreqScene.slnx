@@ -3,5 +3,8 @@
     <Project Path="src/ProjectMDotNet/ProjectMDotNet.csproj" />
     <Project Path="src/ProjectMDotNet.Avalonia/ProjectMDotNet.Avalonia.csproj" />
     <Project Path="src/FreqScene/FreqScene.csproj" />
+    <Project Path="src/FreqScene.Remote/FreqScene.Remote.csproj" />
+    <Project Path="src/FreqScene.Remote.Server/FreqScene.Remote.Server.csproj" />
+    <Project Path="src/FreqScene.Remote.Client/FreqScene.Remote.Client.csproj" />
   </Folder>
 </Solution>

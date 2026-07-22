@@ -12,7 +12,7 @@ public sealed class AppDelegate : UIApplicationDelegate
     {
         Window = new UIWindow(UIScreen.MainScreen.Bounds)
         {
-            RootViewController = new VisualizerViewController(),
+            RootViewController = new ServerBrowserViewController(),
         };
         Window.MakeKeyAndVisible();
         return true;

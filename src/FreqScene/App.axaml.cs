@@ -18,6 +18,10 @@ public partial class App : Application
     private NativeMenu? _audioMenu;
     private NativeMenu? _displayMenu;
     private NativeMenuItem? _wallpaperTransparencyItem;
+    private NativeMenuItem? _remoteAllowItem;
+    private NativeMenuItem? _remoteBroadcastItem;
+    private NativeMenuItem? _remoteStatusItem;
+    private RemoteServerManager? _remoteManager;
     private VisualizerCoordinator? _coordinator;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private object? _activeWindow;
@@ -44,6 +48,7 @@ public partial class App : Application
             desktop.Exit += (_, _) =>
             {
                 (_activeWindow as INativeVisualizerWindow)?.Close();
+                _remoteManager?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
                 _coordinator?.Dispose();
             };
             _coordinator = new VisualizerCoordinator();
@@ -54,6 +59,14 @@ public partial class App : Application
             _coordinator.RenderScalePercent = _settings.RenderScalePercent;
             _coordinator.FrameRateCap = _settings.FrameRateCap;
             _coordinator.WallpaperTransparency = _settings.WallpaperTransparency;
+
+            _remoteManager = new RemoteServerManager(_coordinator, _settings);
+            _remoteManager.ClientsChanged += () => Dispatcher.UIThread.Post(UpdateRemoteStatus);
+            _remoteManager.StatusChanged += message => Console.WriteLine($"[remote] {message}");
+            if (_settings.AllowRemoteConnections)
+            {
+                _ = _remoteManager.ApplyAsync();
+            }
 
             SetupTrayIcon(desktop);
             ApplyMode(_mode, persist: false);
@@ -181,6 +194,7 @@ public partial class App : Application
 
         menu.Items.Add(BuildResolutionItem());
         menu.Items.Add(BuildFrameRateItem());
+        menu.Items.Add(BuildRemoteItem());
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(quitItem);
 
@@ -369,6 +383,68 @@ public partial class App : Application
         }
 
         SettingsStore.Save(_settings);
+    }
+
+    private NativeMenuItem BuildRemoteItem()
+    {
+        _remoteAllowItem = new NativeMenuItem("Allow Remote Connections")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.AllowRemoteConnections,
+        };
+        _remoteAllowItem.Click += (_, _) =>
+            Dispatcher.UIThread.Post(() => ApplyRemoteSettings(!_settings.AllowRemoteConnections, _settings.BroadcastServer));
+
+        _remoteBroadcastItem = new NativeMenuItem("Broadcast on Local Network")
+        {
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _settings.BroadcastServer,
+        };
+        _remoteBroadcastItem.Click += (_, _) =>
+            Dispatcher.UIThread.Post(() => ApplyRemoteSettings(_settings.AllowRemoteConnections, !_settings.BroadcastServer));
+
+        _remoteStatusItem = new NativeMenuItem("No devices connected") { IsEnabled = false };
+
+        var menu = new NativeMenu
+        {
+            Items = { _remoteAllowItem, _remoteBroadcastItem, new NativeMenuItemSeparator(), _remoteStatusItem },
+        };
+        return new NativeMenuItem("Remote") { Menu = menu };
+    }
+
+    private void ApplyRemoteSettings(bool allow, bool broadcast)
+    {
+        _settings.AllowRemoteConnections = allow;
+        _settings.BroadcastServer = broadcast;
+        if (_remoteAllowItem is not null)
+        {
+            _remoteAllowItem.IsChecked = allow;
+        }
+
+        if (_remoteBroadcastItem is not null)
+        {
+            _remoteBroadcastItem.IsChecked = broadcast;
+        }
+
+        SettingsStore.Save(_settings);
+        _ = _remoteManager?.ApplyAsync();
+        UpdateRemoteStatus();
+    }
+
+    private void UpdateRemoteStatus()
+    {
+        if (_remoteStatusItem is null)
+        {
+            return;
+        }
+
+        var count = _remoteManager?.ClientCount ?? 0;
+        _remoteStatusItem.Header = count switch
+        {
+            0 => "No devices connected",
+            1 => "1 device connected",
+            _ => $"{count} devices connected",
+        };
     }
 
     private void ShowPlaylistEditor()

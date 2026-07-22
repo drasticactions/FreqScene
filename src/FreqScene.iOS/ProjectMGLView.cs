@@ -28,6 +28,7 @@ public sealed class ProjectMGLView : UIView
     private int _width;
     private int _height;
     private bool _failed;
+    private (string Data, bool Smooth)? _pendingPreset;
 
     [Export("layerClass")]
     public static Class LayerClass() => new(typeof(CAEAGLLayer));
@@ -42,6 +43,18 @@ public sealed class ProjectMGLView : UIView
 
     public void AddPcm(ReadOnlySpan<float> interleavedSamples, AudioChannels channels) =>
         _pcm.Add(interleavedSamples, channels);
+
+    public void LoadPresetData(string presetData, bool smoothTransition)
+    {
+        if (_projectM is not { } instance || _context is null)
+        {
+            _pendingPreset = (presetData, smoothTransition);
+            return;
+        }
+
+        EAGLContext.SetCurrentContext(_context);
+        instance.LoadPresetData(presetData, smoothTransition);
+    }
 
     public override void MovedToWindow()
     {
@@ -77,6 +90,11 @@ public sealed class ProjectMGLView : UIView
             _projectM.PresetDuration = 30.0;
             _projectM.WindowSize = (_width, _height);
             _projectM.LoadPresetFile("idle://", smoothTransition: false);
+            if (_pendingPreset is { } pending)
+            {
+                _pendingPreset = null;
+                _projectM.LoadPresetData(pending.Data, pending.Smooth);
+            }
 
             _displayLink = CADisplayLink.Create(RenderFrame);
             _displayLink.AddToRunLoop(NSRunLoop.Main, NSRunLoopMode.Common);

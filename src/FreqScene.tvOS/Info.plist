@@ -18,6 +18,12 @@
 	<array>
 		<integer>3</integer>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>FreqScene connects to a FreqScene desktop server on your local network to mirror its visualization.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_freqscene._tcp</string>
+	</array>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>
