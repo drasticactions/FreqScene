@@ -9,7 +9,15 @@
     <IsAotCompatible>true</IsAotCompatible>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
+    <NoWarn>$(NoWarn);IL3053;IL2104</NoWarn>
     <NativeAssetsDirectory Condition="'$(NativeAssetsDirectory)' == ''">$(RepoRoot)artifacts/native/</NativeAssetsDirectory>
   </PropertyGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="MagicOnion.Server" />
+    <TrimmerRootAssembly Include="Cysharp.Runtime.Multicaster" />
+    <TrimmerRootAssembly Include="MessagePack" />
+    <TrimmerRootAssembly Include="MagicOnion.Abstractions" />
+  </ItemGroup>
 
 </Project>
