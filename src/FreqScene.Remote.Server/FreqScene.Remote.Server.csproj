@@ -5,6 +5,9 @@
   <ItemGroup>
     <ProjectReference Include="../../external/MagicOnion/src/MagicOnion.Server/MagicOnion.Server.csproj"
                       UndefineProperties="PublishAot;PublishTrimmed" />
+    <ProjectReference Include="../../external/MagicOnion/src/MagicOnion.Server.SourceGenerator/MagicOnion.Server.SourceGenerator.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false"
+                      UndefineProperties="PublishAot;PublishTrimmed;RuntimeIdentifier" />
     <PackageReference Include="MeaMod.DNS" />
     <ProjectReference Include="../FreqScene.Remote/FreqScene.Remote.csproj" />
   </ItemGroup>
