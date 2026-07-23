@@ -146,13 +146,18 @@ jobs:
   # ---------------------------------------------------------------------------
   # FreqScene.Tui — the headless/terminal head. Shipped as a NativeAOT binary in a
   # plain archive: no app bundle, no AppImage, and no native libprojectM (the TUI
-  # never creates a ProjectM instance), so these jobs need neither the submodule
-  # nor a CMake toolchain.
+  # never creates a ProjectM instance), so these jobs need no CMake toolchain and
+  # skip the (large) external/projectm submodule. They still need external/MagicOnion,
+  # which FreqScene.Remote* consume as ProjectReferences — hence the targeted init
+  # below instead of `submodules: recursive` on checkout.
   tui-macos:
     name: TUI macOS (universal, adhoc-signed)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check out MagicOnion submodule
+        run: git submodule update --init external/MagicOnion
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -180,6 +185,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check out MagicOnion submodule
+        run: git submodule update --init external/MagicOnion
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -215,6 +223,9 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check out MagicOnion submodule
+        run: git submodule update --init external/MagicOnion
 
       - uses: actions/setup-dotnet@v4
         with:
