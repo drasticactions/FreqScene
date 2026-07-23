@@ -21,6 +21,10 @@ public partial class App : Application
     private NativeMenuItem? _remoteAllowItem;
     private NativeMenuItem? _remoteBroadcastItem;
     private NativeMenuItem? _remoteStatusItem;
+    private NativeMenuItem? _pairItem;
+    private NativeMenu? _pairedDevicesMenu;
+    private PairingWindow? _pairingWindow;
+    private PairPinDialog? _pairPinDialog;
     private NativeMenu? _connectMenu;
     private NativeMenuItem? _clientStatusItem;
     private NativeMenuItem? _stopItem;
@@ -74,6 +78,7 @@ public partial class App : Application
             _remoteManager = new RemoteServerManager(_coordinator, _settings);
             _remoteManager.ClientsChanged += () => Dispatcher.UIThread.Post(UpdateRemoteStatus);
             _remoteManager.StatusChanged += message => Console.WriteLine($"[remote] {message}");
+            _remoteManager.Pairing.DevicesChanged += () => Dispatcher.UIThread.Post(BuildPairedDevicesMenu);
             if (_settings.AllowRemoteConnections)
             {
                 _ = _remoteManager.ApplyAsync();
@@ -82,6 +87,7 @@ public partial class App : Application
             _clientManager = new RemoteClientManager(_coordinator);
             _clientManager.StateChanged += () => Dispatcher.UIThread.Post(UpdateClientStatus);
             _clientManager.StatusChanged += message => Console.WriteLine($"[remote client] {message}");
+            _clientManager.PairingRequired += () => Dispatcher.UIThread.Post(ShowPairPinDialog);
             try
             {
                 _mdnsBrowser = new MdnsBrowser();
@@ -475,6 +481,12 @@ public partial class App : Application
 
         _remoteStatusItem = new NativeMenuItem("No devices connected") { IsEnabled = false };
 
+        _pairItem = new NativeMenuItem("Pair a Device…") { IsEnabled = _settings.AllowRemoteConnections };
+        _pairItem.Click += (_, _) => Dispatcher.UIThread.Post(ShowPairingWindow);
+
+        _pairedDevicesMenu = new NativeMenu();
+        BuildPairedDevicesMenu();
+
         _connectMenu = new NativeMenu();
         BuildConnectMenu();
         _clientStatusItem = new NativeMenuItem("Not mirroring") { IsEnabled = false };
@@ -483,12 +495,98 @@ public partial class App : Application
         {
             Items =
             {
-                _remoteAllowItem, _remoteBroadcastItem, new NativeMenuItemSeparator(), _remoteStatusItem,
+                _remoteAllowItem, _remoteBroadcastItem, new NativeMenuItemSeparator(),
+                _pairItem, new NativeMenuItem("Paired Devices") { Menu = _pairedDevicesMenu },
+                _remoteStatusItem,
                 new NativeMenuItemSeparator(),
                 new NativeMenuItem("Connect to Host") { Menu = _connectMenu }, _clientStatusItem,
             },
         };
         return new NativeMenuItem("Remote") { Menu = menu };
+    }
+
+    private void ShowPairingWindow()
+    {
+        if (_remoteManager is null)
+        {
+            return;
+        }
+
+        if (_pairingWindow is not null)
+        {
+            _pairingWindow.Activate();
+            return;
+        }
+
+        _pairingWindow = new PairingWindow(_remoteManager);
+        _pairingWindow.Closed += (_, _) => _pairingWindow = null;
+        _pairingWindow.Show();
+        _pairingWindow.Activate();
+    }
+
+    private void BuildPairedDevicesMenu()
+    {
+        if (_pairedDevicesMenu is null)
+        {
+            return;
+        }
+
+        _pairedDevicesMenu.Items.Clear();
+        var devices = _remoteManager?.Pairing.Devices ?? [];
+        if (devices.Count == 0)
+        {
+            _pairedDevicesMenu.Items.Add(new NativeMenuItem("No paired devices") { IsEnabled = false });
+            return;
+        }
+
+        foreach (var device in devices)
+        {
+            var deviceMenu = new NativeMenu
+            {
+                Items = { new NativeMenuItem($"{device.DeviceModel} — paired {device.PairedAt:d}") { IsEnabled = false } },
+            };
+            var forgetItem = new NativeMenuItem("Forget This Device");
+            var targetId = device.Id;
+            forgetItem.Click += (_, _) => Dispatcher.UIThread.Post(() => _remoteManager?.RevokeDevice(targetId));
+            deviceMenu.Items.Add(forgetItem);
+            _pairedDevicesMenu.Items.Add(new NativeMenuItem(device.Name) { Menu = deviceMenu });
+        }
+    }
+
+    private void ShowPairPinDialog()
+    {
+        if (_clientManager is null)
+        {
+            return;
+        }
+
+        if (_pairPinDialog is not null)
+        {
+            _pairPinDialog.Activate();
+            return;
+        }
+
+        var dialog = new PairPinDialog(_clientManager.HostName);
+        dialog.PairRequested += async pin =>
+        {
+            try
+            {
+                await _clientManager.PairAsync(pin);
+                dialog.Close();
+            }
+            catch (Remote.Client.PairingException ex)
+            {
+                dialog.ShowError(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                dialog.ShowError($"Pairing failed: {ex.Message}");
+            }
+        };
+        dialog.Closed += (_, _) => _pairPinDialog = null;
+        _pairPinDialog = dialog;
+        dialog.Show();
+        dialog.Activate();
     }
 
     private void BuildConnectMenu()
@@ -585,6 +683,7 @@ public partial class App : Application
             null or Remote.Client.RemoteSessionState.Stopped => "Not mirroring",
             Remote.Client.RemoteSessionState.Connecting => $"Connecting to “{_clientManager.HostName}”…",
             Remote.Client.RemoteSessionState.Reconnecting => $"Reconnecting to “{_clientManager.HostName}”…",
+            Remote.Client.RemoteSessionState.PairingRequired => $"Pairing required for “{_clientManager.HostName}”",
             _ => _clientManager.CurrentPresetName is { } preset
                 ? $"Mirroring “{_clientManager.HostName}” — {preset}"
                 : $"Mirroring “{_clientManager.HostName}”",
@@ -610,6 +709,16 @@ public partial class App : Application
         if (_remoteBroadcastItem is not null)
         {
             _remoteBroadcastItem.IsChecked = broadcast;
+        }
+
+        if (_pairItem is not null)
+        {
+            _pairItem.IsEnabled = allow;
+        }
+
+        if (!allow)
+        {
+            _pairingWindow?.Close();
         }
 
         SettingsStore.Save(_settings);

@@ -1,3 +1,6 @@
 [submodule "external/projectm"]
 	path = external/projectm
 	url = https://github.com/projectM-visualizer/projectm.git
+[submodule "external/MagicOnion"]
+	path = external/MagicOnion
+	url = https://github.com/drasticactions/MagicOnion.git

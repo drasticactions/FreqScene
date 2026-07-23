@@ -8,7 +8,7 @@
 # Silk.NET.OpenAL.Soft.Native brings in for CaptureAudioSource.
 #
 # Pipeline:
-#   1. `dotnet publish -p:PublishAot=true` self-contained per RID.
+#   1. `dotnet publish -p:FreqSceneAot=true` self-contained per RID.
 #   2. macOS universal only: merge the two publish trees into one directory,
 #      lipo'ing every Mach-O (the AOT executable and the OpenAL dylib).
 #   3. macOS: ad-hoc codesign every Mach-O. A lipo'd binary carries an invalid
@@ -113,7 +113,7 @@ for rid in "${RIDS[@]}"; do
     -c Release \
     -r "$rid" \
     --self-contained true \
-    -p:PublishAot=true \
+    -p:FreqSceneAot=true \
     -p:DebugType=none \
     -p:DebugSymbols=false \
     -o "$(pubdir "$rid")"

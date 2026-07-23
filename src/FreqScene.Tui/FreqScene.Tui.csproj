@@ -2,6 +2,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>FreqScene.Tui</RootNamespace>
+    <PublishAot Condition="'$(FreqSceneAot)' == 'true'">true</PublishAot>
+    <PublishDocumentationFiles>false</PublishDocumentationFiles>
   </PropertyGroup>
 
   <ItemGroup>

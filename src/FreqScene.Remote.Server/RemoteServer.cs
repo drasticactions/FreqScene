@@ -1,3 +1,9 @@
+using Cysharp.Runtime.Multicast.InMemory;
+using Cysharp.Runtime.Multicast.Remoting;
+using FreqScene.Remote.Server.AotSupport;
+using MagicOnion.Serialization.MessagePack;
+using MagicOnion.Server.Binder;
+using MessagePack;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -18,7 +24,8 @@ public sealed class RemoteServer : IAsyncDisposable
 
     public RemoteBroadcaster Broadcaster { get; }
 
-    public static async Task<RemoteServer> StartAsync(int port, string? serverName, CancellationToken cancellationToken = default)
+    public static async Task<RemoteServer> StartAsync(
+        int port, string? serverName, PairingManager pairing, CancellationToken cancellationToken = default)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -27,16 +34,24 @@ public sealed class RemoteServer : IAsyncDisposable
             // Dual-stack: clients resolving the Bonjour host may dial IPv4 or IPv6.
             options.ListenAnyIP(port, listen => listen.Protocols = HttpProtocols.Http2);
         });
+        builder.Services.AddSingleton<IInMemoryProxyFactory>(StaticVisualizerHubProxyFactory.Instance);
+        builder.Services.AddSingleton<IRemoteProxyFactory>(StaticVisualizerHubProxyFactory.Instance);
+        builder.Services.AddSingleton<IMagicOnionGrpcMethodProvider>(new StaticMagicOnionMethodProvider());
         builder.Services.AddMagicOnion(options =>
         {
             options.EnableStreamingHubHeartbeat = true;
             options.StreamingHubHeartbeatInterval = TimeSpan.FromSeconds(5);
             options.StreamingHubHeartbeatTimeout = TimeSpan.FromSeconds(15);
+            options.MessageSerializer = MessagePackMagicOnionSerializerProvider.Default
+                .WithOptions(MessagePackSerializer.DefaultOptions);
         });
         builder.Services.AddSingleton<RemoteBroadcaster>();
+        builder.Services.AddSingleton(pairing);
 
         var app = builder.Build();
-        app.MapMagicOnionService(typeof(VisualizerHub), typeof(PresetService));
+        app.MapMagicOnionService<VisualizerHub>();
+        app.MapMagicOnionService<PresetService>();
+        app.MapMagicOnionService<PairingService>();
 
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
 
@@ -45,6 +60,9 @@ public sealed class RemoteServer : IAsyncDisposable
         {
             broadcaster.ServerName = serverName;
         }
+
+        broadcaster.ServerId = pairing.ServerId;
+        pairing.ServerName = broadcaster.ServerName;
 
         return new RemoteServer(app, broadcaster);
     }

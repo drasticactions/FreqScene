@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="MagicOnion.Abstractions" />
+    <ProjectReference Include="../../external/MagicOnion/src/MagicOnion.Abstractions/MagicOnion.Abstractions.csproj"
+                      UndefineProperties="PublishAot;PublishTrimmed" />
     <PackageReference Include="MessagePack.Annotations" />
   </ItemGroup>
 </Project>

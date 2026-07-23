@@ -12,6 +12,7 @@ public sealed class VisualizerViewController : UIViewController
     private ProjectMGLView? _glView;
     private SyntheticAudioSource? _audio;
     private RemoteVisualizerSession? _session;
+    private PairingStore? _pairings;
     private UILabel? _statusBadge;
 
     public VisualizerViewController()
@@ -94,13 +95,20 @@ public sealed class VisualizerViewController : UIViewController
         var cacheDir = Path.Combine(
             NSSearchPath.GetDirectories(NSSearchPathDirectory.CachesDirectory, NSSearchPathDomain.User)[0],
             "presets");
+
+        _pairings ??= new PairingStore(Path.Combine(
+            NSSearchPath.GetDirectories(NSSearchPathDirectory.ApplicationSupportDirectory, NSSearchPathDomain.User)[0],
+            "FreqScene",
+            "pairings.json"));
+
         var bonjourName = _serverBonjourName;
         var session = new RemoteVisualizerSession(
             address,
             UIDevice.CurrentDevice.Name,
             UIDevice.CurrentDevice.Model,
             new PresetCache(cacheDir),
-            bonjourName is null ? null : ct => BonjourResolver.ResolveByNameAsync(bonjourName, ct));
+            bonjourName is null ? null : ct => BonjourResolver.ResolveByNameAsync(bonjourName, ct),
+            _pairings.Find(bonjourName, address.Host)?.Token);
 
         // PcmBuffer is thread-safe; PCM flows straight in from the hub thread.
         session.PcmReceived += samples => _glView?.AddPcm(samples, AudioChannels.Stereo);
@@ -139,6 +147,80 @@ public sealed class VisualizerViewController : UIViewController
             case RemoteSessionState.Stopped:
                 StartSynthetic();
                 break;
+            case RemoteSessionState.PairingRequired:
+                StartSynthetic();
+                if (_statusBadge is not null)
+                {
+                    _statusBadge.Hidden = false;
+                    _statusBadge.Text = "pairing required";
+                }
+
+                PromptForPin();
+                break;
+        }
+    }
+
+    private void PromptForPin()
+    {
+        if (_serverAddress is not { } address || PresentedViewController is not null)
+        {
+            return;
+        }
+
+        var alert = UIAlertController.Create(
+            "Pair with Server",
+            "Enter the PIN shown in FreqScene on the server.",
+            UIAlertControllerStyle.Alert);
+        alert.AddTextField(field =>
+        {
+            field.Placeholder = "123456";
+            field.KeyboardType = UIKeyboardType.NumberPad;
+        });
+        alert.AddAction(UIAlertAction.Create("Cancel", UIAlertActionStyle.Cancel, null));
+        alert.AddAction(UIAlertAction.Create("Pair", UIAlertActionStyle.Default, async _ =>
+        {
+            var pin = alert.TextFields?[0].Text?.Trim() ?? "";
+            try
+            {
+                var grant = await PairingClient.PairAsync(
+                    address, pin, UIDevice.CurrentDevice.Name, UIDevice.CurrentDevice.Model);
+                _pairings?.Upsert(new ServerPairing
+                {
+                    ServerId = grant.ServerId,
+                    ServerName = grant.ServerName,
+                    Host = address.Host,
+                    Token = grant.Token,
+                });
+                InvokeOnMainThread(RestartRemote);
+            }
+            catch (PairingException ex)
+            {
+                InvokeOnMainThread(() => ShowPairingError(ex.Message));
+            }
+        }));
+        PresentViewController(alert, animated: true, null);
+    }
+
+    private void ShowPairingError(string message)
+    {
+        var alert = UIAlertController.Create("Pairing Failed", message, UIAlertControllerStyle.Alert);
+        alert.AddAction(UIAlertAction.Create("Cancel", UIAlertActionStyle.Cancel, null));
+        alert.AddAction(UIAlertAction.Create("Try Again", UIAlertActionStyle.Default, _ =>
+            InvokeOnMainThread(PromptForPin)));
+        PresentViewController(alert, animated: true, null);
+    }
+
+    private void RestartRemote()
+    {
+        if (_session is { } session)
+        {
+            _session = null;
+            _ = session.DisposeAsync();
+        }
+
+        if (_serverAddress is { } address)
+        {
+            StartRemote(address);
         }
     }
 

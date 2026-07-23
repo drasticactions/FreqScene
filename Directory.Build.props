@@ -13,9 +13,13 @@
     <NativeAssetsDirectory Condition="'$(NativeAssetsDirectory)' == ''">$(RepoRoot)artifacts/native/</NativeAssetsDirectory>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == ''">
     <TrimmerRootAssembly Include="MagicOnion.Server" />
     <TrimmerRootAssembly Include="Cysharp.Runtime.Multicaster" />
+    <TrimmerRootAssembly Include="FreqScene.Remote" />
+    <TrimmerRootAssembly Include="FreqScene.Remote.Server" />
+  </ItemGroup>
+  <ItemGroup>
     <TrimmerRootAssembly Include="MessagePack" />
     <TrimmerRootAssembly Include="MagicOnion.Abstractions" />
   </ItemGroup>

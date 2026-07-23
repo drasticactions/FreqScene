@@ -1,4 +1,5 @@
 using System.Text;
+using Grpc.Core;
 using Grpc.Net.Client;
 using MagicOnion.Client;
 
@@ -10,6 +11,9 @@ public enum RemoteSessionState
     Connected,
     Reconnecting,
     Stopped,
+
+    /// <summary>The server rejected or revoked this device's token; a new PIN pairing is needed.</summary>
+    PairingRequired,
 }
 
 public sealed class RemoteVisualizerSession : IAsyncDisposable
@@ -18,10 +22,13 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
     private readonly string _deviceModel;
     private readonly PresetCache _cache;
     private readonly Func<CancellationToken, Task<Uri?>>? _rediscoverAsync;
+    private readonly string _authToken;
     private readonly CancellationTokenSource _cts = new();
     private readonly Receiver _receiver;
     private Uri _address;
     private Task? _runTask;
+    private volatile bool _authRejected;
+    private IVisualizerHub? _activeHub;
     private IPresetService? _presetService;
     private int _presetVersion;
     private uint _lastSequence;
@@ -33,7 +40,8 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
         string clientName,
         string deviceModel,
         PresetCache presetCache,
-        Func<CancellationToken, Task<Uri?>>? rediscoverAsync = null)
+        Func<CancellationToken, Task<Uri?>>? rediscoverAsync = null,
+        string? authToken = null)
     {
         RemoteClientAotSupport.EnsureInitialized();
         _address = address;
@@ -41,12 +49,15 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
         _deviceModel = deviceModel;
         _cache = presetCache;
         _rediscoverAsync = rediscoverAsync;
+        _authToken = authToken ?? "";
         _receiver = new Receiver(this);
     }
 
     public RemoteSessionState State { get; private set; } = RemoteSessionState.Connecting;
 
     public string? ServerName { get; private set; }
+
+    public string? ServerId { get; private set; }
 
     public string? CurrentPresetName { get; private set; }
 
@@ -89,15 +100,18 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
                 attemptCts.CancelAfter(TimeSpan.FromSeconds(15));
                 hub = await StreamingHubClient.ConnectAsync<IVisualizerHub, IVisualizerHubReceiver>(
                     channel, _receiver, options, cancellationToken: attemptCts.Token).ConfigureAwait(false);
+                _activeHub = hub;
                 _presetService = MagicOnionClient.Create<IPresetService>(channel);
 
                 var snapshot = await hub.JoinAsync(new JoinRequest
                 {
                     ClientName = _clientName,
                     DeviceModel = _deviceModel,
+                    AuthToken = _authToken,
                 }).WaitAsync(attemptCts.Token).ConfigureAwait(false);
 
                 ServerName = snapshot.ServerName;
+                ServerId = snapshot.ServerId;
                 _sawSequence = false;
                 if (snapshot.CurrentPreset is { } preset)
                 {
@@ -114,12 +128,18 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
             {
                 // Shutting down; fall through to the loop exit.
             }
+            catch (Exception ex) when (IsAuthRejection(ex))
+            {
+                _authRejected = true;
+                StatusChanged?.Invoke("pairing required");
+            }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 StatusChanged?.Invoke($"connection failed: {ex.Message}");
             }
             finally
             {
+                _activeHub = null;
                 _presetService = null;
                 if (hub is not null)
                 {
@@ -134,6 +154,13 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
                 }
 
                 channel?.Dispose();
+            }
+
+            if (_authRejected)
+            {
+                // Retrying cannot succeed until the user pairs again; hand control to the head.
+                SetState(RemoteSessionState.PairingRequired);
+                return;
             }
 
             if (ct.IsCancellationRequested)
@@ -181,7 +208,7 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
                     return;
                 }
 
-                var payload = await service.GetPresetAsync(preset.Id).ConfigureAwait(false);
+                var payload = await service.GetPresetAsync(preset.Id, _authToken).ConfigureAwait(false);
                 _cache.Store(payload.Id, payload.Content);
                 content = payload.Content;
             }
@@ -213,6 +240,32 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
         _lastSequence = chunk.Sequence;
         _sawSequence = true;
         PcmReceived?.Invoke(chunk.Samples);
+    }
+
+    private static bool IsAuthRejection(Exception exception)
+    {
+        for (Exception? ex = exception; ex is not null; ex = ex.InnerException)
+        {
+            if (ex is RpcException { StatusCode: StatusCode.Unauthenticated })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void OnRevoked()
+    {
+        _authRejected = true;
+        StatusChanged?.Invoke("pairing revoked by server");
+
+        // Dropping the hub completes the run loop's WaitForDisconnectAsync, which then
+        // surfaces PairingRequired instead of reconnecting.
+        if (_activeHub is { } hub)
+        {
+            _ = hub.DisposeAsync();
+        }
     }
 
     private void SetState(RemoteSessionState state)
@@ -256,5 +309,7 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
         public void OnPcm(PcmChunk chunk) => session.OnPcmChunk(chunk);
 
         public void OnServerShutdown() => session.StatusChanged?.Invoke("server shut down");
+
+        public void OnRevoked() => session.OnRevoked();
     }
 }

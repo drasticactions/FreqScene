@@ -5,12 +5,13 @@ using Cysharp.Runtime.Multicast;
 
 namespace FreqScene.Remote.Server;
 
-public sealed record RemoteClientInfo(Guid ConnectionId, string Name, string DeviceModel);
+public sealed record RemoteClientInfo(Guid ConnectionId, string Name, string DeviceModel, string DeviceId);
 
 public sealed class RemoteBroadcaster : IRemoteSink, IDisposable
 {
     private readonly IMulticastSyncGroup<Guid, IVisualizerHubReceiver> _group;
     private readonly ConcurrentDictionary<Guid, RemoteClientInfo> _clients = new();
+    private readonly ConcurrentDictionary<Guid, IVisualizerHubReceiver> _receivers = new();
     private readonly ConcurrentDictionary<string, (DateTime LastWrite, PresetInfo Info)> _pathCache = new();
     private readonly ConcurrentDictionary<string, string> _idToPath = new();
     private readonly Lock _gate = new();
@@ -36,10 +37,13 @@ public sealed class RemoteBroadcaster : IRemoteSink, IDisposable
     /// <summary>Fires on hub threads; UI listeners must marshal themselves.</summary>
     public event Action? ClientsChanged;
 
-    internal SessionSnapshot Register(Guid connectionId, IVisualizerHubReceiver receiver, JoinRequest request)
+    public string ServerId { get; set; } = "";
+
+    internal SessionSnapshot Register(Guid connectionId, IVisualizerHubReceiver receiver, JoinRequest request, string deviceId)
     {
         _group.Add(connectionId, receiver);
-        _clients[connectionId] = new RemoteClientInfo(connectionId, request.ClientName, request.DeviceModel);
+        _clients[connectionId] = new RemoteClientInfo(connectionId, request.ClientName, request.DeviceModel, deviceId);
+        _receivers[connectionId] = receiver;
         _clientCount = _clients.Count;
         ClientsChanged?.Invoke();
 
@@ -48,6 +52,7 @@ public sealed class RemoteBroadcaster : IRemoteSink, IDisposable
             return new SessionSnapshot
             {
                 ServerName = ServerName,
+                ServerId = ServerId,
                 CurrentPreset = _currentPreset,
                 PresetDurationSeconds = _presetDuration,
                 PresetLocked = _presetLocked,
@@ -58,10 +63,31 @@ public sealed class RemoteBroadcaster : IRemoteSink, IDisposable
     internal void Unregister(Guid connectionId)
     {
         _group.Remove(connectionId);
+        _receivers.TryRemove(connectionId, out _);
         if (_clients.TryRemove(connectionId, out _))
         {
             _clientCount = _clients.Count;
             ClientsChanged?.Invoke();
+        }
+    }
+
+    public void KickDevice(string deviceId)
+    {
+        foreach (var client in _clients.Values.Where(c => c.DeviceId == deviceId))
+        {
+            if (_receivers.TryGetValue(client.ConnectionId, out var receiver))
+            {
+                try
+                {
+                    receiver.OnRevoked();
+                }
+                catch (Exception)
+                {
+                    // The connection may already be gone; revocation still holds on rejoin.
+                }
+            }
+
+            Unregister(client.ConnectionId);
         }
     }
 

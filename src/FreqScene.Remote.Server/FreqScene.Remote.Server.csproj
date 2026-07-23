@@ -3,7 +3,8 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="MagicOnion.Server" />
+    <ProjectReference Include="../../external/MagicOnion/src/MagicOnion.Server/MagicOnion.Server.csproj"
+                      UndefineProperties="PublishAot;PublishTrimmed" />
     <PackageReference Include="MeaMod.DNS" />
     <ProjectReference Include="../FreqScene.Remote/FreqScene.Remote.csproj" />
   </ItemGroup>

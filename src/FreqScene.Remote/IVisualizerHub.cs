@@ -18,4 +18,6 @@ public interface IVisualizerHubReceiver
     void OnPcm(PcmChunk chunk);
 
     void OnServerShutdown();
+
+    void OnRevoked();
 }

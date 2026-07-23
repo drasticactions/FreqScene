@@ -1,6 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="MagicOnion.Client" />
+    <!-- UndefineProperties: publish-time globals (-p:PublishAot etc.) must not leak into the
+         submodule's netstandard2.0 targets, which reject them (NETSDK1207). -->
+    <ProjectReference Include="../../external/MagicOnion/src/MagicOnion.Client/MagicOnion.Client.csproj"
+                      UndefineProperties="PublishAot;PublishTrimmed" />
+    <!-- The nupkg bundles the source generator as an analyzer; with a ProjectReference it must
+         be attached explicitly. RemoteClientAotSupport's [MagicOnionClientGeneration] depends on it. -->
+    <ProjectReference Include="../../external/MagicOnion/src/MagicOnion.Client.SourceGenerator/MagicOnion.Client.SourceGenerator.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false"
+                      UndefineProperties="PublishAot;PublishTrimmed;RuntimeIdentifier" />
     <PackageReference Include="MessagePack" />
     <ProjectReference Include="../FreqScene.Remote/FreqScene.Remote.csproj" />
   </ItemGroup>

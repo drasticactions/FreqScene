@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using FreqScene.Remote.Server;
 using Terminal.Gui.App;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
@@ -213,6 +214,9 @@ public sealed class MainView : Runnable
             new MenuItem { Title = "Toggle _Remote Connections", Action = ToggleRemote },
             new MenuItem { Title = "Toggle _Broadcast (mDNS)", Action = ToggleBroadcast },
             new Line(),
+            new MenuItem { Title = "Pair a De_vice…", Action = ShowPairing },
+            new MenuItem { Title = "Paired D_evices…", Action = ShowPairedDevices },
+            new Line(),
             new MenuItem { Title = "Preset _Duration…", Action = PromptDuration },
         ]));
 
@@ -385,6 +389,73 @@ public sealed class MainView : Runnable
         SettingsStore.Save(_settings);
         _ = _remoteManager.ApplyAsync();
         _pendingLog.Enqueue(_settings.BroadcastServer ? "mDNS broadcast on" : "mDNS broadcast off");
+    }
+
+    private void ShowPairing()
+    {
+        if (!_settings.AllowRemoteConnections)
+        {
+            _pendingLog.Enqueue("[pairing] enable remote connections first");
+            return;
+        }
+
+        var pin = _remoteManager.Pairing.BeginPairing();
+        using Dialog dialog = new() { Title = "Pair a Device", Width = 46, Height = 9 };
+        Label info = new() { X = 1, Y = 0, Text = "Enter this PIN on the device:" };
+        Label pinLabel = new() { X = 1, Y = 2, Text = $"        {pin[..3]} {pin[3..]}" };
+        Label status = new()
+        {
+            X = 1,
+            Y = 4,
+            Width = Dim.Fill(1),
+            Text = $"Waiting for a device… PIN valid {PairingManager.PinLifetime.TotalMinutes:0} min.",
+        };
+        dialog.Add(info, pinLabel, status);
+        dialog.AddButton(new Button { Title = "_Close", IsDefault = true });
+
+        Action<PairedDevice> onPaired = device =>
+            _app.Invoke(() => status.Text = $"Paired “{device.Name}” ✔");
+        _remoteManager.Pairing.DevicePaired += onPaired;
+        try
+        {
+            App!.Run(dialog);
+        }
+        finally
+        {
+            _remoteManager.Pairing.DevicePaired -= onPaired;
+            _remoteManager.Pairing.CancelPairing();
+        }
+    }
+
+    private void ShowPairedDevices()
+    {
+        while (true)
+        {
+            var devices = _remoteManager.Pairing.Devices;
+            if (devices.Count == 0)
+            {
+                MessageBox.Query(App!, "Paired Devices", "No devices are paired.", "OK");
+                return;
+            }
+
+            using Dialog dialog = new() { Title = "Paired Devices" };
+            ObservableCollection<string> rows = [.. devices.Select(d => $"{d.Name} — {d.DeviceModel}")];
+            ListView list = new() { Width = 50, Height = Math.Min(devices.Count, 10) };
+            list.SetSource(rows);
+            list.Value = 0;
+            dialog.Add(list);
+            dialog.AddButton(new Button { Title = "_Close" });
+            dialog.AddButton(new Button { Title = "_Forget Selected" });
+            App!.Run(dialog);
+
+            if (dialog.Canceled || list.Value is not { } index || index >= devices.Count)
+            {
+                return;
+            }
+
+            _remoteManager.RevokeDevice(devices[index].Id);
+            _pendingLog.Enqueue($"[pairing] forgot “{devices[index].Name}”");
+        }
     }
 
     private void ShowKeys()

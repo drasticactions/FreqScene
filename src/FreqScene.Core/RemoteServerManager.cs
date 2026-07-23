@@ -2,11 +2,34 @@ using FreqScene.Remote.Server;
 
 namespace FreqScene;
 
-public sealed class RemoteServerManager(VisualizerCoordinator coordinator, AppSettings settings) : IAsyncDisposable
+public sealed class RemoteServerManager : IAsyncDisposable
 {
+    private readonly VisualizerCoordinator coordinator;
+    private readonly AppSettings settings;
     private RemoteServer? _server;
     private MdnsAdvertiser? _advertiser;
     private Task _applyTask = Task.CompletedTask;
+
+    public RemoteServerManager(VisualizerCoordinator coordinator, AppSettings settings)
+    {
+        // The server serializes with MessagePackSerializer.DefaultOptions.
+        Remote.Client.RemoteClientAotSupport.EnsureInitialized();
+        this.coordinator = coordinator;
+        this.settings = settings;
+        if (string.IsNullOrEmpty(settings.ServerId))
+        {
+            settings.ServerId = Guid.NewGuid().ToString("N");
+            SettingsStore.Save(settings);
+        }
+
+        Pairing = new PairingManager(
+            settings.ServerId,
+            settings.ServerDisplayName ?? Environment.MachineName,
+            settings.PairedDevices);
+        Pairing.DevicesChanged += PersistDevices;
+    }
+
+    public PairingManager Pairing { get; }
 
     /// <summary>Fires on hub threads; UI listeners must marshal themselves.</summary>
     public event Action? ClientsChanged;
@@ -37,7 +60,7 @@ public sealed class RemoteServerManager(VisualizerCoordinator coordinator, AppSe
         {
             try
             {
-                _server = await RemoteServer.StartAsync(settings.RemotePort, settings.ServerDisplayName)
+                _server = await RemoteServer.StartAsync(settings.RemotePort, settings.ServerDisplayName, Pairing)
                     .ConfigureAwait(false);
                 _server.Broadcaster.ClientsChanged += OnClientsChanged;
                 _server.Broadcaster.NotifyPlaybackSettings(coordinator.PresetDuration, coordinator.PresetLocked);
@@ -77,7 +100,7 @@ public sealed class RemoteServerManager(VisualizerCoordinator coordinator, AppSe
         {
             try
             {
-                _advertiser = new MdnsAdvertiser(_server!.Broadcaster.ServerName, settings.RemotePort);
+                _advertiser = new MdnsAdvertiser(_server!.Broadcaster.ServerName, settings.RemotePort, settings.ServerId);
             }
             catch (Exception ex)
             {
@@ -89,6 +112,18 @@ public sealed class RemoteServerManager(VisualizerCoordinator coordinator, AppSe
             _advertiser = null;
             advertiser.Dispose();
         }
+    }
+
+    public void RevokeDevice(string deviceId)
+    {
+        _server?.Broadcaster.KickDevice(deviceId);
+        Pairing.RemoveDevice(deviceId);
+    }
+
+    private void PersistDevices()
+    {
+        settings.PairedDevices = [.. Pairing.Devices];
+        SettingsStore.Save(settings);
     }
 
     private void OnClientsChanged() => ClientsChanged?.Invoke();

@@ -10,7 +10,7 @@ public sealed class MdnsAdvertiser : IDisposable
     private readonly ServiceDiscovery _discovery;
     private readonly ServiceProfile _profile;
 
-    public MdnsAdvertiser(string instanceName, int port)
+    public MdnsAdvertiser(string instanceName, int port, string? serverId = null)
     {
         // Advertise only LAN-reachable addresses; the default (every interface) includes
         // VPN tunnels and virtualization bridges that clients dial and time out on.
@@ -20,6 +20,10 @@ public sealed class MdnsAdvertiser : IDisposable
             : new ServiceProfile(instanceName, RemoteProtocol.BonjourServiceType, (ushort)port);
         _profile.AddProperty("v", RemoteProtocol.Version.ToString());
         _profile.AddProperty("name", instanceName);
+        if (!string.IsNullOrEmpty(serverId))
+        {
+            _profile.AddProperty("sid", serverId);
+        }
         _discovery = new ServiceDiscovery();
         _discovery.Advertise(_profile);
     }

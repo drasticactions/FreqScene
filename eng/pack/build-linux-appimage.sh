@@ -183,10 +183,10 @@ PUBLISH_DIR="$WORK_DIR/publish"
 # set the trim/single-file props on the non-AOT path.
 publish_props() {
   if [[ $AOT -eq 1 ]]; then
-    printf '%s\n' -p:PublishAot=true
+    printf '%s\n' -p:FreqSceneAot=true
   else
     printf '%s\n' \
-      -p:PublishTrimmed="$([[ $TRIM -eq 1 ]] && echo true || echo false)" \
+      -p:FreqSceneTrim="$([[ $TRIM -eq 1 ]] && echo true || echo false)" \
       -p:PublishSingleFile=false
   fi
 }

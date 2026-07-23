@@ -6,6 +6,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);AVLN3001;IL2104</NoWarn>
+    <PublishAot Condition="'$(FreqSceneAot)' == 'true'">true</PublishAot>
+    <PublishTrimmed Condition="'$(FreqSceneTrim)' == 'true'">true</PublishTrimmed>
+    <PublishTrimmed Condition="'$(FreqSceneTrim)' == 'false'">false</PublishTrimmed>
+    <PublishDocumentationFiles>false</PublishDocumentationFiles>
   </PropertyGroup>
 
   <ItemGroup>

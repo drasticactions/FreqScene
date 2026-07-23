@@ -177,7 +177,7 @@ foreach ($rid in $Rids) {
         "set `"PATH=%PATH%;$InstallerDir`""
         "`"$($vc.VcVars)`" $($vc.HostArg) -vcvars_ver=$($vc.ToolsetVersion)"
         "dotnet publish `"$Project`" -c Release -r $rid --self-contained true " +
-            "-p:PublishAot=true -p:IlcUseEnvironmentalTools=true " +
+            "-p:FreqSceneAot=true -p:IlcUseEnvironmentalTools=true " +
             "-p:DebugType=none -p:DebugSymbols=false " +
             "-o `"$publishDir`""
     ) -join " && "

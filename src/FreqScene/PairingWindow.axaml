@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FreqScene.PairingWindow"
+        Width="360" SizeToContent="Height"
+        CanResize="False"
+        Topmost="True"
+        WindowStartupLocation="CenterScreen"
+        Title="FreqScene — Pair a Device">
+    <StackPanel Margin="16" Spacing="8">
+        <TextBlock Text="Enter this PIN on the device:" HorizontalAlignment="Center" />
+        <TextBlock x:Name="PinText" FontSize="42" FontWeight="Bold" HorizontalAlignment="Center" />
+        <TextBlock x:Name="StatusText" HorizontalAlignment="Center" TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="New PIN" Click="OnNewPin" />
+            <Button Content="Done" IsDefault="True" IsCancel="True" Click="OnDone" />
+        </StackPanel>
+    </StackPanel>
+</Window>

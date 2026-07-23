@@ -2,7 +2,7 @@ namespace FreqScene.Remote;
 
 public static class RemoteProtocol
 {
-    public const int Version = 1;
+    public const int Version = 2;
 
     public const string BonjourServiceType = "_freqscene._tcp";
 

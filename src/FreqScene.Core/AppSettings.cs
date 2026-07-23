@@ -22,6 +22,10 @@ public sealed class AppSettings
 
     public string? ServerDisplayName { get; set; }
 
+    public string? ServerId { get; set; }
+
+    public List<Remote.Server.PairedDevice> PairedDevices { get; set; } = [];
+
     public string? LastRemoteAddress { get; set; }
 }
 
