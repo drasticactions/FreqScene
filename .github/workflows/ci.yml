@@ -144,11 +144,107 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # FreqScene.Tui — the headless/terminal head. Shipped as a NativeAOT binary in a
+  # plain archive: no app bundle, no AppImage, and no native libprojectM (the TUI
+  # never creates a ProjectM instance), so these jobs need neither the submodule
+  # nor a CMake toolchain.
+  tui-macos:
+    name: TUI macOS (universal, adhoc-signed)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Resolve tag version
+        id: tagver
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build TUI tarball (universal, NativeAOT, ad-hoc signed)
+        run: eng/pack/build-tui.sh --os macos --arch universal --version "${VERSION}"
+        env:
+          VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freqscene-tui-macos-universal
+          path: artifacts/pack/*.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  tui-linux:
+    name: TUI Linux x64 (AOT tarball)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install NativeAOT build dependencies
+        # NativeAOT links with clang against zlib; no CMake/GL packages needed
+        # here because the TUI ships no native libprojectM.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang zlib1g-dev
+
+      - name: Resolve tag version
+        id: tagver
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build TUI tarball (NativeAOT)
+        run: eng/pack/build-tui.sh --os linux --arch x64 --version "${VERSION}"
+        env:
+          VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freqscene-tui-linux-x64
+          path: artifacts/pack/*.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  tui-windows:
+    name: TUI Windows x64 (AOT zip)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Resolve tag version
+        id: tagver
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build TUI zip (NativeAOT)
+        shell: pwsh
+        run: |
+          eng/pack/build-tui.ps1 -Arch x64 -Version $env:VERSION
+        env:
+          VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freqscene-tui-windows-x64
+          path: artifacts/pack/*.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # On a v* tag, gather every platform's artifacts and publish a GitHub Release.
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, linux, windows]
+    needs: [macos, linux, windows, tui-macos, tui-linux, tui-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
