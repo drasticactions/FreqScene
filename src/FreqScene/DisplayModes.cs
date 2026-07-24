@@ -6,9 +6,14 @@ public static class DisplayModes
 
     private static IReadOnlyList<DisplayMode> ComputeAvailable()
     {
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsWindows())
+        if (OperatingSystem.IsMacOS())
         {
             return [DisplayMode.Window, DisplayMode.Overlay, DisplayMode.Wallpaper];
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return [DisplayMode.Window];
         }
 
         // Linux overlay/wallpaper need the compositor to support wlr-layer-shell
