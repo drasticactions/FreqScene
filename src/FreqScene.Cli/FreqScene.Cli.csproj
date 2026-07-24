@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>FreqScene.Cli</RootNamespace>
+    <AssemblyName>freqscene-cli</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishAot Condition="'$(FreqSceneAot)' == 'true'">true</PublishAot>
+    <PublishDocumentationFiles>false</PublishDocumentationFiles>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <ProjectReference Include="../FreqScene.Core/FreqScene.Core.csproj" />
+    <ProjectReference Include="../FreqScene.Linux/FreqScene.Linux.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(NativeAssetsDirectory)linux-x64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/linux-x64/native/%(Filename)%(Extension)" Visible="false" />
+    <None Include="$(NativeAssetsDirectory)linux-arm64/*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes/linux-arm64/native/%(Filename)%(Extension)" Visible="false" />
+  </ItemGroup>
+</Project>

@@ -36,7 +36,7 @@ public sealed class VisualizerCoordinator : IDisposable
     private bool _loaded;
     private string _preferredAudioSource = SyntheticSourceName;
 
-    public VisualizerCoordinator()
+    public VisualizerCoordinator(IEnumerable<string>? initialPaths = null)
     {
         var state = PlaylistStore.Load();
         _preferredAudioSource = state.AudioSource ?? SyntheticSourceName;
@@ -61,7 +61,7 @@ public sealed class VisualizerCoordinator : IDisposable
             }
         }
 
-        AddPaths(Environment.GetCommandLineArgs().Skip(1));
+        AddPaths(initialPaths ?? Environment.GetCommandLineArgs().Skip(1));
 
         if (!string.IsNullOrEmpty(state.CurrentPreset))
         {

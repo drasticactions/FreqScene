@@ -3,6 +3,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="freqscene-cli" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
     <ProjectReference Include="../ProjectMDotNet/ProjectMDotNet.csproj" />

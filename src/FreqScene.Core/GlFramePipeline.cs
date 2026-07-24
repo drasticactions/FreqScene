@@ -2,7 +2,7 @@ using ProjectMDotNet;
 
 namespace FreqScene;
 
-internal sealed unsafe class GlFramePipeline
+public sealed unsafe class GlFramePipeline
 {
     private const string VertexSource = """
         #version 330 core

@@ -10,7 +10,7 @@ internal sealed class LinuxVisualizerWindow : INativeVisualizerWindow
     public LinuxVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey)
     {
         _coordinator = coordinator;
-        _host = new LinuxVisualizerHost(mode, coordinator.WallpaperTransparency, displayKey)
+        _host = new LinuxVisualizerHost(mode, coordinator.WallpaperTransparency, displayKey, AvaloniaUiDispatcher.Instance)
         {
             RenderScale = coordinator.RenderScalePercent / 100.0,
         };

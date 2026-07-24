@@ -2,7 +2,7 @@ using System.Text;
 
 namespace FreqScene;
 
-internal static unsafe class Gl
+public static unsafe class Gl
 {
     public const int Texture2D = 0x0DE1;
     public const int Rgba = 0x1908;

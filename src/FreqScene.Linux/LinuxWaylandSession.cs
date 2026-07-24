@@ -6,7 +6,7 @@ using NWayland.Protocols.XdgShell;
 
 namespace FreqScene;
 
-internal sealed class LinuxWaylandSession : IDisposable
+public sealed class LinuxWaylandSession : ILinuxGlSession
 {
     private const uint BtnLeft = 0x110;
     private const uint DoubleClickMs = 400;
@@ -14,6 +14,7 @@ internal sealed class LinuxWaylandSession : IDisposable
     private const int DefaultWindowSize = 640;
 
     private readonly DisplayMode _mode;
+    private readonly bool _fullscreen;
     private readonly WlDisplay _display;
     private readonly WlRegistry _registry;
 
@@ -52,9 +53,10 @@ internal sealed class LinuxWaylandSession : IDisposable
     private double _lastClickX;
     private double _lastClickY;
 
-    public LinuxWaylandSession(DisplayMode mode, string? outputKey)
+    public LinuxWaylandSession(DisplayMode mode, string? outputKey, bool fullscreen = false)
     {
         _mode = mode;
+        _fullscreen = fullscreen;
         _display = WlDisplay.Connect();
         try
         {
@@ -119,6 +121,16 @@ internal sealed class LinuxWaylandSession : IDisposable
     public IntPtr DisplayHandle => _display.Handle;
 
     public IntPtr EglWindowHandle => _eglWindow;
+
+    public uint EglPlatform => LinuxInterop.EglPlatformWaylandKhr;
+
+    public IntPtr NativeDisplayHandle => _display.Handle;
+
+    public IntPtr NativeWindowHandle => _eglWindow;
+
+    public int? RequiredNativeVisualId => null;
+
+    public bool Closed => _closedByCompositor;
 
     public int PixelWidth => _appliedWidth * _appliedScale;
 
@@ -202,6 +214,11 @@ internal sealed class LinuxWaylandSession : IDisposable
     }
 
     public void RequestShow() => _showRequested = true;
+
+    public void AfterSwap(IntPtr eglDisplay, IntPtr eglSurface)
+    {
+        // The compositor presents Wayland buffers; nothing to do here.
+    }
 
     public void PumpEvents()
     {
@@ -390,6 +407,11 @@ internal sealed class LinuxWaylandSession : IDisposable
         _toplevel.SetTitle("FreqScene");
         _toplevel.SetAppId("FreqScene");
         _toplevel.SetMinSize(320, 240);
+        if (_fullscreen)
+        {
+            _toplevel.SetFullscreen(_selectedOutput?.Output);
+        }
+
         _surface.Commit();
     }
 

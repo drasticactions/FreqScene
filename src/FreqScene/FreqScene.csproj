@@ -16,12 +16,11 @@
     <PackageReference Include="Avalonia.Controls.DataGrid" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <ProjectReference Include="../FreqScene.Core/FreqScene.Core.csproj" />
+    <ProjectReference Include="../FreqScene.Linux/FreqScene.Linux.csproj" />
     <ProjectReference Include="../ProjectMDotNet.Avalonia/ProjectMDotNet.Avalonia.csproj" />
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Wayland" />
-    <PackageReference Include="NWayland" />
-    <PackageReference Include="NWayland.Protocols.Wlr" />
     <PackageReference Include="Avalonia.Themes.Simple" />
     <PackageReference Include="Avalonia.Fonts.Inter" />
   </ItemGroup>

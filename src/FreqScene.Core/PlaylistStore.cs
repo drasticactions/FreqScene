@@ -5,10 +5,13 @@ namespace FreqScene;
 /// <summary>Loads and saves <see cref="PlaylistState"/> under the user's app-data directory.</summary>
 public static class PlaylistStore
 {
-    public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create),
-        "FreqScene",
+    public static string FilePath { get; private set; } = Path.Combine(
+        AppDataDirectory.Default,
         "playlist.json");
+
+    /// <summary>Points this store (and only this store) at a different directory; call before the first Load.</summary>
+    public static void OverrideDirectory(string directory) =>
+        FilePath = Path.Combine(directory, "playlist.json");
 
     public static PlaylistState Load()
     {

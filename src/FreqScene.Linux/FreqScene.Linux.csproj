@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NWayland" />
+    <PackageReference Include="NWayland.Protocols.Wlr" />
+    <ProjectReference Include="../FreqScene.Core/FreqScene.Core.csproj" />
+  </ItemGroup>
+</Project>

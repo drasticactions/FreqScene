@@ -1,13 +1,12 @@
 using System.Diagnostics;
-using Avalonia.Threading;
 using ProjectMDotNet;
 
 namespace FreqScene;
 
-internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
+public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
 {
-    private readonly DisplayMode _mode;
-    private readonly string? _displayKey;
+    private readonly Func<ILinuxGlSession> _sessionFactory;
+    private readonly IUiDispatcher _dispatcher;
     private readonly bool _transparent;
     private readonly PcmBuffer _pcmBuffer = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _glActions = new();
@@ -15,7 +14,7 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
     private readonly ManualResetEvent _stopEvent = new(false);
 
     private Thread? _renderThread;
-    private LinuxWaylandSession? _session;
+    private ILinuxGlSession? _session;
     private IntPtr _eglDisplay;
     private IntPtr _eglContext;
     private IntPtr _eglSurface;
@@ -31,12 +30,23 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
     private volatile bool _failed;
     private long _nextFrameDue;
 
-    public LinuxVisualizerHost(DisplayMode mode, bool wallpaperTransparency, string? displayKey)
+    public LinuxVisualizerHost(
+        DisplayMode mode,
+        bool wallpaperTransparency,
+        string? displayKey,
+        IUiDispatcher? dispatcher = null)
+        : this(
+            () => new LinuxWaylandSession(mode, displayKey),
+            transparent: mode == DisplayMode.Overlay || (mode == DisplayMode.Wallpaper && wallpaperTransparency),
+            dispatcher)
     {
-        _mode = mode;
-        _displayKey = displayKey;
-        _transparent = mode == DisplayMode.Overlay ||
-            (mode == DisplayMode.Wallpaper && wallpaperTransparency);
+    }
+
+    public LinuxVisualizerHost(Func<ILinuxGlSession> sessionFactory, bool transparent, IUiDispatcher? dispatcher = null)
+    {
+        _sessionFactory = sessionFactory;
+        _transparent = transparent;
+        _dispatcher = dispatcher ?? InlineUiDispatcher.Instance;
     }
 
     public ProjectM? Instance => _instance;
@@ -156,7 +166,11 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
 
         _disposed = true;
         _stopEvent.Set();
-        _renderThread?.Join();
+        if (_renderThread is { } thread && !thread.Join(TimeSpan.FromSeconds(5)))
+        {
+            Trace.TraceWarning("[native] the render thread did not stop in time; abandoning it.");
+        }
+
         _renderThread = null;
         _playlist = null;
         _glActions.Clear();
@@ -168,14 +182,14 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
     {
         try
         {
-            _session = new LinuxWaylandSession(_mode, _displayKey);
+            _session = _sessionFactory();
             CreateContext();
         }
         catch (Exception ex)
         {
             _failed = true;
             TeardownOnRenderThread();
-            Dispatcher.UIThread.Post(() =>
+            _dispatcher.Post(() =>
             {
                 if (!_disposed)
                 {
@@ -192,9 +206,9 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
                 try
                 {
                     _session.PumpEvents();
-                    if (_session.ClosedByCompositor)
+                    if (_session.Closed)
                     {
-                        Trace.TraceWarning("[native] the compositor closed the layer surface; rendering stops.");
+                        Trace.TraceWarning("[native] the display session ended; rendering stops.");
                         break;
                     }
 
@@ -220,15 +234,15 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
     {
         var session = _session!;
         _eglDisplay = LinuxInterop.eglGetPlatformDisplay(
-            LinuxInterop.EglPlatformWaylandKhr, session.DisplayHandle, IntPtr.Zero);
+            session.EglPlatform, session.NativeDisplayHandle, IntPtr.Zero);
         if (_eglDisplay == IntPtr.Zero)
         {
-            _eglDisplay = LinuxInterop.eglGetDisplay(session.DisplayHandle);
+            _eglDisplay = LinuxInterop.eglGetDisplay(session.NativeDisplayHandle);
         }
 
         if (_eglDisplay == IntPtr.Zero)
         {
-            throw new InvalidOperationException("No EGL display is available for the Wayland connection.");
+            throw new InvalidOperationException("No EGL display is available for the native display connection.");
         }
 
         if (!LinuxInterop.eglInitialize(_eglDisplay, out _, out _))
@@ -252,7 +266,29 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
             LinuxInterop.EglDepthSize, 24,
             LinuxInterop.EglNone,
         };
-        if (!LinuxInterop.eglChooseConfig(_eglDisplay, configAttribs, out var config, 1, out var configCount) ||
+        IntPtr config;
+        if (session.RequiredNativeVisualId is { } visualId)
+        {
+            var configs = stackalloc IntPtr[64];
+            if (!LinuxInterop.eglChooseConfig(_eglDisplay, configAttribs, configs, 64, out var matchCount) ||
+                matchCount < 1)
+            {
+                throw new InvalidOperationException("No usable EGL config is available.");
+            }
+
+            config = configs[0];
+            for (var i = 0; i < matchCount; i++)
+            {
+                if (LinuxInterop.eglGetConfigAttrib(
+                        _eglDisplay, configs[i], LinuxInterop.EglNativeVisualId, out var id) &&
+                    id == visualId)
+                {
+                    config = configs[i];
+                    break;
+                }
+            }
+        }
+        else if (!LinuxInterop.eglChooseConfig(_eglDisplay, configAttribs, out config, 1, out var configCount) ||
             configCount < 1)
         {
             throw new InvalidOperationException("No usable EGL config is available.");
@@ -272,7 +308,7 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
                 $"An OpenGL 3.3 core context could not be created (0x{LinuxInterop.eglGetError():X}).");
         }
 
-        _eglSurface = LinuxInterop.eglCreateWindowSurface(_eglDisplay, config, session.EglWindowHandle, null);
+        _eglSurface = LinuxInterop.eglCreateWindowSurface(_eglDisplay, config, session.NativeWindowHandle, null);
         if (_eglSurface == IntPtr.Zero)
         {
             throw new InvalidOperationException(
@@ -349,6 +385,7 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
         }
 
         LinuxInterop.eglSwapBuffers(_eglDisplay, _eglSurface);
+        session.AfterSwap(_eglDisplay, _eglSurface);
     }
 
     private void EnsureInstance()
@@ -376,7 +413,7 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
                 }
 
                 instance.LoadPresetFile("idle://", smoothTransition: false);
-                Dispatcher.UIThread.Post(() =>
+                _dispatcher.Post(() =>
                 {
                     if (!_disposed)
                     {
@@ -394,7 +431,7 @@ internal sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
             _failed = true;
             _instance?.Dispose();
             _instance = null;
-            Dispatcher.UIThread.Post(() =>
+            _dispatcher.Post(() =>
             {
                 if (!_disposed)
                 {

@@ -31,6 +31,12 @@ public sealed class RemoteServerManager : IAsyncDisposable
 
     public PairingManager Pairing { get; }
 
+    /// <summary>
+    /// Overrides <see cref="AppSettings.AllowRemoteConnections"/> without persisting it,
+    /// so a headless run can force the server on while the desktop setting stays untouched.
+    /// </summary>
+    public bool? ForceEnabled { get; init; }
+
     /// <summary>Fires on hub threads; UI listeners must marshal themselves.</summary>
     public event Action? ClientsChanged;
 
@@ -54,7 +60,7 @@ public sealed class RemoteServerManager : IAsyncDisposable
             // The previous transition already reported its failure.
         }
 
-        var wantServer = !stopAll && settings.AllowRemoteConnections;
+        var wantServer = !stopAll && (ForceEnabled ?? settings.AllowRemoteConnections);
 
         if (wantServer && _server is null)
         {

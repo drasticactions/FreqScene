@@ -24,6 +24,8 @@ internal static partial class LinuxInterop
     public const int EglContextOpenGlCoreProfileBit = 0x0001;
     public const uint EglOpenGlApi = 0x30A2;
     public const uint EglPlatformWaylandKhr = 0x31D8;
+    public const uint EglPlatformGbmKhr = 0x31D7;
+    public const int EglNativeVisualId = 0x302E;
 
     [LibraryImport(Egl)]
     public static partial IntPtr eglGetPlatformDisplay(uint platform, IntPtr nativeDisplay, IntPtr attribs);
@@ -47,6 +49,15 @@ internal static partial class LinuxInterop
     [return: MarshalAs(UnmanagedType.U1)]
     public static unsafe partial bool eglChooseConfig(
         IntPtr display, int* attribs, out IntPtr config, int configSize, out int configCount);
+
+    [LibraryImport(Egl)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static unsafe partial bool eglChooseConfig(
+        IntPtr display, int* attribs, IntPtr* configs, int configSize, out int configCount);
+
+    [LibraryImport(Egl)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool eglGetConfigAttrib(IntPtr display, IntPtr config, int attribute, out int value);
 
     [LibraryImport(Egl)]
     public static unsafe partial IntPtr eglCreateContext(
@@ -104,10 +115,11 @@ internal static partial class LinuxInterop
     [LibraryImport(Libc, SetLastError = true)]
     private static partial int poll(ref PollFd fds, ulong count, int timeoutMs);
 
-    /// <summary>Returns true when the file descriptor has data to read (non-blocking check).</summary>
-    public static bool PollReadable(int fd)
+    public static bool PollReadable(int fd) => PollReadable(fd, 0);
+
+    public static bool PollReadable(int fd, int timeoutMs)
     {
         var pollFd = new PollFd { Fd = fd, Events = PollIn };
-        return poll(ref pollFd, 1, 0) > 0 && (pollFd.Revents & PollIn) != 0;
+        return poll(ref pollFd, 1, timeoutMs) > 0 && (pollFd.Revents & PollIn) != 0;
     }
 }

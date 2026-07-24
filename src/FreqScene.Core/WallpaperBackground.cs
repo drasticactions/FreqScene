@@ -1,6 +1,6 @@
 namespace FreqScene;
 
-internal enum WallpaperPosition
+public enum WallpaperPosition
 {
     Center = 0,
     Tile = 1,
@@ -10,7 +10,7 @@ internal enum WallpaperPosition
     Span = 5,
 }
 
-internal sealed class WallpaperBackground
+public sealed class WallpaperBackground
 {
     public byte[]? BgraPixels { get; init; }
 

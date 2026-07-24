@@ -1,7 +1,5 @@
 namespace FreqScene;
 
-internal sealed record DisplayInfo(string Key, string Label, bool IsPrimary);
-
 internal static class DisplayTargets
 {
     public static IReadOnlyList<DisplayInfo> List()

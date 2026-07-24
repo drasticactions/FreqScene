@@ -4,10 +4,13 @@ namespace FreqScene;
 
 public static class SettingsStore
 {
-    public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create),
-        "FreqScene",
+    public static string FilePath { get; private set; } = Path.Combine(
+        AppDataDirectory.Default,
         "settings.json");
+
+    /// <summary>Points this store (and only this store) at a different directory; call before the first Load.</summary>
+    public static void OverrideDirectory(string directory) =>
+        FilePath = Path.Combine(directory, "settings.json");
 
     public static AppSettings Load()
     {
