@@ -15,7 +15,12 @@
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">iossimulator-arm64</RuntimeIdentifier>
     <NoWarn>$(NoWarn);CA1422</NoWarn>
     <ProjectMNativeArchive>$(NativeAssetsDirectory)$(RuntimeIdentifier)/libprojectM-4-ios.a</ProjectMNativeArchive>
+    <AppIcon>AppIcon</AppIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ImageAsset Include="Assets.xcassets/**/*" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../ProjectMDotNet/ProjectMDotNet.csproj" />

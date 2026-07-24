@@ -1,6 +1,10 @@
 using Android.App;
 
-[assembly: Application(Label = "FreqScene", UsesCleartextTraffic = true)]
+[assembly: Application(
+    Label = "FreqScene",
+    Icon = "@mipmap/appicon",
+    RoundIcon = "@mipmap/appicon_round",
+    UsesCleartextTraffic = true)]
 
 [assembly: UsesPermission(Android.Manifest.Permission.Internet)]
 [assembly: UsesPermission(Android.Manifest.Permission.AccessNetworkState)]
