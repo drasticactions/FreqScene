@@ -543,7 +543,7 @@ public partial class App : Application
         {
             var deviceMenu = new NativeMenu
             {
-                Items = { new NativeMenuItem($"{device.DeviceModel} — paired {device.PairedAt:d}") { IsEnabled = false } },
+                Items = { new NativeMenuItem($"Paired {device.PairedAt:d}") { IsEnabled = false } },
             };
             var forgetItem = new NativeMenuItem("Forget This Device");
             var targetId = device.Id;
