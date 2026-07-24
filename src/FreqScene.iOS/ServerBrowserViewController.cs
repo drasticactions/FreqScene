@@ -6,13 +6,11 @@ namespace FreqScene.iOS;
 
 public sealed class ServerBrowserViewController : UIViewController, IUITableViewDataSource, IUITableViewDelegate
 {
-    private const string LastServerKey = "FreqScene.LastServerName";
     private const string CellId = "server";
 
     private readonly List<NSNetService> _services = [];
     private NSNetServiceBrowser? _browser;
     private UITableView? _table;
-    private bool _autoJoinArmed = true;
     private bool _joining;
 
     public override void ViewDidLoad()
@@ -92,32 +90,12 @@ public sealed class ServerBrowserViewController : UIViewController, IUITableView
         }
 
         _table?.ReloadData();
-        TryAutoJoin();
     }
 
     private void OnServiceRemoved(object? sender, NSNetServiceEventArgs e)
     {
         _services.RemoveAll(s => s.Name == e.Service.Name);
         _table?.ReloadData();
-    }
-
-    private async void TryAutoJoin()
-    {
-        // Auto-join only when exactly one server is visible and it is the one last joined.
-        if (!_autoJoinArmed
-            || _services.Count != 1
-            || NSUserDefaults.StandardUserDefaults.StringForKey(LastServerKey) != _services[0].Name)
-        {
-            return;
-        }
-
-        _autoJoinArmed = false;
-        var candidate = _services[0];
-        await Task.Delay(1500);
-        if (_browser is not null && !_joining && _services.Count == 1 && _services[0] == candidate)
-        {
-            await JoinAsync(candidate);
-        }
     }
 
     private async Task JoinAsync(NSNetService service)
@@ -135,7 +113,6 @@ public sealed class ServerBrowserViewController : UIViewController, IUITableView
             return;
         }
 
-        NSUserDefaults.StandardUserDefaults.SetString(service.Name, LastServerKey);
         PresentViewController(new VisualizerViewController(address, service.Name), animated: true, null);
     }
 
@@ -168,7 +145,6 @@ public sealed class ServerBrowserViewController : UIViewController, IUITableView
     public async void RowSelected(UITableView tableView, NSIndexPath indexPath)
     {
         tableView.DeselectRow(indexPath, animated: true);
-        _autoJoinArmed = false;
         if (indexPath.Row < _services.Count)
         {
             await JoinAsync(_services[indexPath.Row]);

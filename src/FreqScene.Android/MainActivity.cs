@@ -21,7 +21,6 @@ namespace FreqScene.Android;
 public sealed class MainActivity : Activity
 {
     private const string PrefsName = "FreqScene";
-    private const string LastServerKey = "lastServerName";
     private const string LastAddressKey = "lastManualAddress";
     private const string ConnectByAddressRow = "Connect by address…";
     private const string StandaloneRow = "Standalone Mode";
@@ -29,7 +28,6 @@ public sealed class MainActivity : Activity
     private NsdServerBrowser? _browser;
     private ListView? _list;
     private ISharedPreferences? _prefs;
-    private bool _autoJoinArmed = true;
     private bool _joining;
 
     protected override void OnCreate(Bundle? savedInstanceState)
@@ -59,11 +57,7 @@ public sealed class MainActivity : Activity
         SetContentView(root);
 
         _browser = new NsdServerBrowser(this);
-        _browser.ServicesChanged += () =>
-        {
-            RefreshList();
-            TryAutoJoin();
-        };
+        _browser.ServicesChanged += RefreshList;
         RefreshList();
     }
 
@@ -110,7 +104,6 @@ public sealed class MainActivity : Activity
             return;
         }
 
-        _autoJoinArmed = false;
         if (e.Position < browser.Services.Count)
         {
             await JoinAsync(browser.Services[e.Position]);
@@ -122,25 +115,6 @@ public sealed class MainActivity : Activity
         else
         {
             StartVisualizer(address: null, serviceName: null);
-        }
-    }
-
-    private async void TryAutoJoin()
-    {
-        if (!_autoJoinArmed
-            || _browser is not { } browser
-            || browser.Services.Count != 1
-            || _prefs?.GetString(LastServerKey, null) != browser.Services[0])
-        {
-            return;
-        }
-
-        _autoJoinArmed = false;
-        var candidate = browser.Services[0];
-        await Task.Delay(1500);
-        if (!_joining && !IsFinishing && browser.Services.Count == 1 && browser.Services[0] == candidate)
-        {
-            await JoinAsync(candidate);
         }
     }
 
@@ -160,7 +134,6 @@ public sealed class MainActivity : Activity
             return;
         }
 
-        _prefs?.Edit()?.PutString(LastServerKey, serviceName)?.Apply();
         StartVisualizer(address, serviceName);
     }
 
