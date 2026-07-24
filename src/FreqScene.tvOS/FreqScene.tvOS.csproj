@@ -34,6 +34,7 @@
     <Compile Include="../FreqScene.iOS/VisualizerViewController.cs" Link="VisualizerViewController.cs" />
     <Compile Include="../FreqScene.iOS/ServerBrowserViewController.cs" Link="ServerBrowserViewController.cs" />
     <Compile Include="../FreqScene.iOS/BonjourResolver.cs" Link="BonjourResolver.cs" />
+    <Compile Include="../FreqScene.iOS/UserDefaultsPairingStore.cs" Link="UserDefaultsPairingStore.cs" />
     <Compile Include="../FreqScene.iOS/ProjectMGLView.cs" Link="ProjectMGLView.cs" />
     <Compile Include="../FreqScene.iOS/SyntheticAudioSource.cs" Link="SyntheticAudioSource.cs" />
   </ItemGroup>

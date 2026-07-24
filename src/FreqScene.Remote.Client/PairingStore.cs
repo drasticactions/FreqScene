@@ -9,7 +9,6 @@ public sealed class ServerPairing
 
     public string ServerName { get; set; } = "";
 
-    /// <summary>Last host the server was reached at; a fallback match when it was renamed.</summary>
     public string Host { get; set; } = "";
 
     public string Token { get; set; } = "";
@@ -19,11 +18,15 @@ public sealed class ServerPairing
 [JsonSourceGenerationOptions(WriteIndented = true)]
 internal sealed partial class PairingJsonContext : JsonSerializerContext;
 
-/// <summary>Per-server pairing tokens, persisted as plain JSON next to the head's other state.</summary>
-public sealed class PairingStore(string filePath)
+public class PairingStore(string filePath)
 {
     private readonly Lock _gate = new();
     private List<ServerPairing>? _entries;
+
+    protected PairingStore()
+        : this("")
+    {
+    }
 
     public ServerPairing? FindByServerId(string serverId)
     {
@@ -33,7 +36,6 @@ public sealed class PairingStore(string filePath)
         }
     }
 
-    /// <summary>Best-effort lookup before the server's id is known: by name, then by host.</summary>
     public ServerPairing? Find(string? serverName, string? host)
     {
         lock (_gate)
@@ -70,6 +72,15 @@ public sealed class PairingStore(string filePath)
         }
     }
 
+    protected virtual string? ReadPayload() =>
+        File.Exists(filePath) ? File.ReadAllText(filePath) : null;
+
+    protected virtual void WritePayload(string json)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        File.WriteAllText(filePath, json);
+    }
+
     private List<ServerPairing> Load()
     {
         if (_entries is not null)
@@ -79,10 +90,9 @@ public sealed class PairingStore(string filePath)
 
         try
         {
-            if (File.Exists(filePath))
+            if (ReadPayload() is { } json)
             {
-                using var stream = File.OpenRead(filePath);
-                _entries = JsonSerializer.Deserialize(stream, PairingJsonContext.Default.ListServerPairing);
+                _entries = JsonSerializer.Deserialize(json, PairingJsonContext.Default.ListServerPairing);
             }
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
@@ -97,9 +107,7 @@ public sealed class PairingStore(string filePath)
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
-            using var stream = File.Create(filePath);
-            JsonSerializer.Serialize(stream, entries, PairingJsonContext.Default.ListServerPairing);
+            WritePayload(JsonSerializer.Serialize(entries, PairingJsonContext.Default.ListServerPairing));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

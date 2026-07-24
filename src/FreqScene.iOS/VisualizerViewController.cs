@@ -96,10 +96,14 @@ public sealed class VisualizerViewController : UIViewController
             NSSearchPath.GetDirectories(NSSearchPathDirectory.CachesDirectory, NSSearchPathDomain.User)[0],
             "presets");
 
+#if TVOS
+        _pairings ??= new UserDefaultsPairingStore();
+#else
         _pairings ??= new PairingStore(Path.Combine(
             NSSearchPath.GetDirectories(NSSearchPathDirectory.ApplicationSupportDirectory, NSSearchPathDomain.User)[0],
             "FreqScene",
             "pairings.json"));
+#endif
 
         var bonjourName = _serverBonjourName;
         var session = new RemoteVisualizerSession(
