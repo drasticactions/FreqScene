@@ -1,0 +1,22 @@
+# FreqScene
+#
+# Install:
+#   sudo cp freqscene-cli.service /etc/systemd/system/
+#   sudo cp -r . /opt/freqscene-cli
+#   sudo systemctl enable --now freqscene-cli
+[Unit]
+Description=FreqScene
+After=systemd-user-sessions.service seatd.service
+Wants=seatd.service
+
+[Service]
+Type=simple
+User=freqscene
+SupplementaryGroups=video render
+WorkingDirectory=/opt/freqscene-cli
+ExecStart=/opt/freqscene-cli/freqscene-cli --backend drm
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
