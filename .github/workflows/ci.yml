@@ -112,6 +112,47 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # freqscene-cli — the Linux-only headless head. Like the desktop app it ships
+  # native libprojectM (it creates a ProjectM instance), so it needs the full
+  # CMake/GL toolchain and the recursive submodules (external/projectm for the
+  # native build, external/MagicOnion via FreqScene.Core -> FreqScene.Remote.Server).
+  cli-linux:
+    name: CLI Linux x64 (AOT tarball)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential patchelf \
+            clang zlib1g-dev \
+            libgl1-mesa-dev libglu1-mesa-dev
+
+      - name: Resolve tag version
+        id: tagver
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build CLI tarball (NativeAOT)
+        run: eng/pack/build-cli.sh --arch x64 --version "${VERSION}"
+        env:
+          VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freqscene-cli-linux-x64
+          path: artifacts/pack/*.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   windows:
     name: Windows x64 (AOT zip)
     runs-on: windows-2022
@@ -255,7 +296,7 @@ jobs:
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, linux, windows, tui-macos, tui-linux, tui-windows]
+    needs: [macos, linux, windows, cli-linux, tui-macos, tui-linux, tui-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
