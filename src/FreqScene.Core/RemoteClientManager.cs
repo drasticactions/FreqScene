@@ -2,17 +2,22 @@ using FreqScene.Remote.Client;
 
 namespace FreqScene;
 
-public sealed class RemoteClientManager(VisualizerCoordinator coordinator) : IAsyncDisposable
+public sealed class RemoteClientManager(
+    VisualizerCoordinator coordinator,
+    string? dataDirectory = null,
+    string? deviceModel = null) : IAsyncDisposable
 {
     private readonly PresetCache _cache = new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
-        "FreqScene",
+        dataDirectory ?? DefaultDataDirectory,
         "preset-cache"));
 
     private readonly PairingStore _pairings = new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
-        "FreqScene",
+        dataDirectory ?? DefaultDataDirectory,
         "pairings.json"));
+
+    private static string DefaultDataDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
+        "FreqScene");
 
     private RemoteVisualizerSession? _session;
     private Task _applyTask = Task.CompletedTask;
@@ -150,7 +155,7 @@ public sealed class RemoteClientManager(VisualizerCoordinator coordinator) : IAs
         }
     }
 
-    private static string DeviceModel => $"Desktop ({Environment.OSVersion.Platform})";
+    private string DeviceModel => deviceModel ?? $"Desktop ({Environment.OSVersion.Platform})";
 
     public async ValueTask DisposeAsync() =>
         await (_applyTask = TransitionAsync(_applyTask, null, null, null)).ConfigureAwait(false);

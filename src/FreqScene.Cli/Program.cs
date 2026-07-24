@@ -41,13 +41,21 @@ internal static class Program
         {
             Description = "Print a pairing PIN at startup so a remote client can pair immediately.",
         };
+        var connectOption = new Option<string?>("--connect")
+        {
+            Description = "Mirror a remote FreqScene host: host[:port] or an mDNS server name (see --list-servers).",
+        };
+        var listServersOption = new Option<bool>("--list-servers")
+        {
+            Description = "List FreqScene servers discovered on the local network.",
+        };
         var listOutputsOption = new Option<bool>("--list-outputs")
         {
-            Description = "List available displays and modes, then exit.",
+            Description = "List available displays and modes.",
         };
         var listAudioOption = new Option<bool>("--list-audio")
         {
-            Description = "List available audio sources, then exit.",
+            Description = "List available audio sources.",
         };
         var presetsArgument = new Argument<string[]>("presets")
         {
@@ -59,7 +67,8 @@ internal static class Program
             "FreqScene headless visualizer")
         {
             outputOption, modeOption, backendOption, audioOption, configDirOption,
-            noRemoteOption, portOption, pairOption, listOutputsOption, listAudioOption,
+            noRemoteOption, portOption, pairOption, connectOption,
+            listOutputsOption, listAudioOption, listServersOption,
             presetsArgument,
         };
 
@@ -72,8 +81,10 @@ internal static class Program
             parseResult.GetValue(noRemoteOption),
             parseResult.GetValue(portOption),
             parseResult.GetValue(pairOption),
+            parseResult.GetValue(connectOption),
             parseResult.GetValue(listOutputsOption),
             parseResult.GetValue(listAudioOption),
+            parseResult.GetValue(listServersOption),
             parseResult.GetValue(presetsArgument) ?? [])));
 
         return root.Parse(args).Invoke();
@@ -88,8 +99,10 @@ internal static class Program
         bool NoRemote,
         int? Port,
         bool Pair,
+        string? Connect,
         bool ListOutputs,
         bool ListAudio,
+        bool ListServers,
         string[] Presets);
 
     private static int Run(CliOptions options)
@@ -114,6 +127,17 @@ internal static class Program
             }
 
             return 0;
+        }
+
+        if (options.ListServers)
+        {
+            return PrintServers();
+        }
+
+        if (options.Connect is not null && (options.Port is not null || options.Pair))
+        {
+            Console.Error.WriteLine("--connect cannot be combined with --port or --pair.");
+            return 1;
         }
 
         if (options.ConfigDir is { } configDir)
@@ -147,14 +171,26 @@ internal static class Program
         coordinator.WallpaperTransparency = false;
         coordinator.StatusChanged += message => Console.WriteLine($"[preset] {message}");
 
-        if (options.Audio is { } audio && !SelectAudio(coordinator, audio))
+        if (options.Connect is not null)
+        {
+            if (options.Audio is not null)
+            {
+                Console.WriteLine("[audio] --audio is ignored while mirroring a remote host");
+            }
+
+            if (options.Presets.Length > 0)
+            {
+                Console.WriteLine("[preset] preset arguments are ignored while mirroring a remote host");
+            }
+        }
+        else if (options.Audio is { } audio && !SelectAudio(coordinator, audio))
         {
             coordinator.Dispose();
             return 1;
         }
 
         RemoteServerManager? remote = null;
-        if (!options.NoRemote)
+        if (!options.NoRemote && options.Connect is null)
         {
             remote = new RemoteServerManager(coordinator, settings) { ForceEnabled = true };
             remote.StatusChanged += message => Console.WriteLine($"[remote] {message}");
@@ -170,6 +206,29 @@ internal static class Program
         else if (options.Pair)
         {
             Console.Error.WriteLine("--pair does nothing with --no-remote.");
+        }
+
+        RemoteClientManager? client = null;
+        Remote.Server.MdnsBrowser? mdns = null;
+        if (options.Connect is { } target)
+        {
+            client = new RemoteClientManager(coordinator, options.ConfigDir, deviceModel: "CLI");
+            client.StatusChanged += message => Console.WriteLine($"[client] {message}");
+            Remote.Client.RemoteSessionState? lastState = null;
+            var currentClient = client;
+            client.StateChanged += () => dispatcher.Post(() =>
+            {
+                if (currentClient.State is { } state && state != lastState)
+                {
+                    lastState = state;
+                    Console.WriteLine($"[client] {DescribeState(currentClient, state)}");
+                }
+            });
+            client.PairingRequired += () => dispatcher.Post(() => PromptPairing(currentClient));
+            if (TryParseAddress(target) is null)
+            {
+                mdns = new Remote.Server.MdnsBrowser();
+            }
         }
 
         var host = new LinuxVisualizerHost(
@@ -207,13 +266,25 @@ internal static class Program
         {
             Console.WriteLine("keys: [p]air PIN, [n]ext preset, [b]ack, [q]uit");
         }
+        else if (client is not null)
+        {
+            Console.WriteLine("keys: [q]uit");
+        }
+
+        if (client is not null && options.Connect is { } connectTarget)
+        {
+            var connectClient = client;
+            _ = Task.Run(() => ConnectClientAsync(connectClient, mdns, connectTarget, shutdown.Token));
+        }
 
         var keys = new ConsoleKeyReader();
-        dispatcher.Run(shutdown.Token, () => HandleKeys(keys, coordinator, remote, shutdown));
+        dispatcher.Run(shutdown.Token, () => HandleKeys(keys, coordinator, remote, client, shutdown));
 
         coordinator.DetachControl(host);
         host.Dispose();
         remote?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
+        client?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
+        mdns?.Dispose();
         coordinator.Dispose();
         return exitCode;
     }
@@ -222,6 +293,7 @@ internal static class Program
         ConsoleKeyReader keys,
         VisualizerCoordinator coordinator,
         RemoteServerManager? remote,
+        RemoteClientManager? client,
         CancellationTokenSource shutdown)
     {
         switch (keys.TryRead())
@@ -230,11 +302,11 @@ internal static class Program
                 shutdown.Cancel();
                 break;
 
-            case 'n':
+            case 'n' when client is null:
                 coordinator.NextPreset();
                 break;
 
-            case 'b':
+            case 'b' when client is null:
                 coordinator.PreviousPreset();
                 break;
 
@@ -242,6 +314,158 @@ internal static class Program
                 PrintPairingPin(remote);
                 break;
         }
+    }
+
+    private static async Task ConnectClientAsync(
+        RemoteClientManager client,
+        Remote.Server.MdnsBrowser? mdns,
+        string target,
+        CancellationToken ct)
+    {
+        try
+        {
+            Uri address;
+            Func<CancellationToken, Task<Uri?>>? rediscover = null;
+            if (TryParseAddress(target) is { } parsed)
+            {
+                var uriHost = Uri.CheckHostName(parsed.Host) == UriHostNameType.IPv6 ? $"[{parsed.Host}]" : parsed.Host;
+                address = new Uri($"http://{uriHost}:{parsed.Port}");
+            }
+            else
+            {
+                Console.WriteLine($"[client] looking for “{target}” on the local network…");
+                Uri? resolved = null;
+                for (var i = 0; i < 20 && resolved is null && !ct.IsCancellationRequested; i++)
+                {
+                    await Task.Delay(250, ct).ConfigureAwait(false);
+                    resolved = mdns!.Resolve(target);
+                }
+
+                rediscover = _ => Task.FromResult(mdns!.Resolve(target));
+                if (resolved is null)
+                {
+                    Console.WriteLine($"[client] “{target}” not found via mDNS yet; also trying it as a hostname");
+                    address = new Uri($"http://{target}:{Remote.RemoteProtocol.DefaultPort}");
+                }
+                else
+                {
+                    address = resolved;
+                }
+            }
+
+            await client.ConnectAsync(address, target, rediscover).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[client] connect failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Splits host[:port] / [v6]:port / IP-literal targets; null means an mDNS instance name.</summary>
+    private static (string Host, int Port)? TryParseAddress(string target)
+    {
+        if (target.StartsWith('['))
+        {
+            var end = target.IndexOf(']');
+            if (end < 0)
+            {
+                return null;
+            }
+
+            var host = target[1..end];
+            var rest = target[(end + 1)..];
+            if (rest.Length == 0)
+            {
+                return (host, Remote.RemoteProtocol.DefaultPort);
+            }
+
+            return rest[0] == ':' && int.TryParse(rest[1..], out var bracketPort) ? (host, bracketPort) : null;
+        }
+
+        if (System.Net.IPAddress.TryParse(target, out _))
+        {
+            // Bare IP literals (including IPv6, whose colons are not a port separator) use the default port.
+            return (target, Remote.RemoteProtocol.DefaultPort);
+        }
+
+        var colon = target.IndexOf(':');
+        if (colon >= 0)
+        {
+            return colon == target.LastIndexOf(':') && int.TryParse(target[(colon + 1)..], out var port)
+                ? (target[..colon], port)
+                : null;
+        }
+
+        return target.Contains('.') ? (target, Remote.RemoteProtocol.DefaultPort) : null;
+    }
+
+    private static void PromptPairing(RemoteClientManager client)
+    {
+        if (Console.IsInputRedirected)
+        {
+            Console.WriteLine(
+                "[client] pairing required — run once from an interactive terminal to enter the PIN; the pairing persists for later runs");
+            return;
+        }
+
+        while (true)
+        {
+            Console.Write($"[client] pairing PIN for “{client.HostName}”: ");
+            var pin = Console.ReadLine()?.Trim();
+            if (string.IsNullOrEmpty(pin))
+            {
+                Console.WriteLine("[client] pairing skipped; not mirroring");
+                return;
+            }
+
+            try
+            {
+                client.PairAsync(pin).GetAwaiter().GetResult();
+                return;
+            }
+            catch (Remote.Client.PairingException ex)
+            {
+                Console.WriteLine($"[client] {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[client] pairing failed: {ex.Message}");
+            }
+        }
+    }
+
+    private static string DescribeState(RemoteClientManager client, Remote.Client.RemoteSessionState state) =>
+        state switch
+        {
+            Remote.Client.RemoteSessionState.Connecting => $"connecting to “{client.HostName}”…",
+            Remote.Client.RemoteSessionState.Connected => $"mirroring “{client.HostName}”",
+            Remote.Client.RemoteSessionState.Reconnecting => $"reconnecting to “{client.HostName}”…",
+            Remote.Client.RemoteSessionState.PairingRequired => "pairing required",
+            _ => "stopped",
+        };
+
+    private static int PrintServers()
+    {
+        using var browser = new Remote.Server.MdnsBrowser();
+        Console.WriteLine("looking for FreqScene servers…");
+        Thread.Sleep(TimeSpan.FromSeconds(3));
+        var servers = browser.Servers;
+        if (servers.Count == 0)
+        {
+            Console.WriteLine("no servers found.");
+            return 0;
+        }
+
+        foreach (var server in servers)
+        {
+            Console.WriteLine(
+                $"  {server.InstanceName}  {server.Address}:{server.Port}  v{server.ProtocolVersion}{(server.IsCompatible ? "" : " (incompatible)")}");
+        }
+
+        return 0;
     }
 
     private static void PrintPairingPin(RemoteServerManager remote)
@@ -275,7 +499,7 @@ internal static class Program
     private static int PrintOutputs()
     {
         var drmOutputs = LinuxKmsSession.ListOutputs();
-        Console.WriteLine("DRM connectors (for --backend drm):");
+        Console.WriteLine("DRM connectors:");
         if (drmOutputs.Count == 0)
         {
             Console.WriteLine("  none found (no /dev/dri access?)");
@@ -292,7 +516,7 @@ internal static class Program
 
         if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
         {
-            Console.WriteLine("Wayland outputs (for --backend wayland):");
+            Console.WriteLine("Wayland outputs:");
             foreach (var output in LinuxWaylandSession.ListOutputs())
             {
                 Console.WriteLine($"  {output.Key}: {output.Label}");
