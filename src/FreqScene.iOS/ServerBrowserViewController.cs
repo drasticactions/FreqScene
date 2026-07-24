@@ -6,8 +6,6 @@ namespace FreqScene.iOS;
 
 public sealed class ServerBrowserViewController : UIViewController, IUITableViewDataSource, IUITableViewDelegate
 {
-    private const string CellId = "server";
-
     private readonly List<NSNetService> _services = [];
     private NSNetServiceBrowser? _browser;
     private UITableView? _table;
@@ -120,7 +118,7 @@ public sealed class ServerBrowserViewController : UIViewController, IUITableView
 
     public UITableViewCell GetCell(UITableView tableView, NSIndexPath indexPath)
     {
-        var cell = tableView.DequeueReusableCell(CellId) ?? new UITableViewCell(UITableViewCellStyle.Subtitle, CellId);
+        var cell = new UITableViewCell(UITableViewCellStyle.Subtitle, null);
         if (indexPath.Row < _services.Count)
         {
             cell.TextLabel!.Text = _services[indexPath.Row].Name;
