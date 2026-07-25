@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="drm-dotnet" />
+    <PackageReference Include="mesa-dotnet" />
     <PackageReference Include="NWayland" />
     <PackageReference Include="NWayland.Protocols.Wlr" />
     <PackageReference Include="seatd-dotnet" />

@@ -9,6 +9,7 @@
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="drm-dotnet" Version="2.4.134" />
     <PackageVersion Include="MeaMod.DNS" Version="1.0.71" />
+    <PackageVersion Include="mesa-dotnet" Version="26.1.5" />
     <PackageVersion Include="MessagePack" Version="3.1.7" />
     <PackageVersion Include="MessagePack.Annotations" Version="3.1.7" />
     <PackageVersion Include="NWayland" Version="0.12.5" />

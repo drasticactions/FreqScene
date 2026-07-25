@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Mesa.Egl;
 using NWayland.Protocols.Wayland;
 using NWayland.Protocols.Wlr.WlrLayerShellUnstableV1;
 using NWayland.Protocols.XdgShell;
@@ -122,7 +123,7 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
 
     public IntPtr EglWindowHandle => _eglWindow;
 
-    public uint EglPlatform => LinuxInterop.EglPlatformWaylandKhr;
+    public EglPlatform EglPlatform => EglPlatform.Wayland;
 
     public IntPtr NativeDisplayHandle => _display.Handle;
 

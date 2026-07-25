@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Mesa.Egl;
+using Mesa.Native;
 using ProjectMDotNet;
 
 namespace FreqScene;
@@ -15,9 +17,9 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
 
     private Thread? _renderThread;
     private ILinuxGlSession? _session;
-    private IntPtr _eglDisplay;
-    private IntPtr _eglContext;
-    private IntPtr _eglSurface;
+    private EglDisplay? _eglDisplay;
+    private EglContext? _eglContext;
+    private EglSurface? _eglSurface;
     private volatile ProjectM? _instance;
     private volatile ProjectMPlaylist? _playlist;
     private IReadOnlyList<string> _textureSearchPaths = [];
@@ -233,101 +235,64 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
     private void CreateContext()
     {
         var session = _session!;
-        _eglDisplay = LinuxInterop.eglGetPlatformDisplay(
-            session.EglPlatform, session.NativeDisplayHandle, IntPtr.Zero);
-        if (_eglDisplay == IntPtr.Zero)
-        {
-            _eglDisplay = LinuxInterop.eglGetDisplay(session.NativeDisplayHandle);
-        }
+        _eglDisplay = EglDisplay.GetPlatformDisplay(session.EglPlatform, session.NativeDisplayHandle);
+        EglDisplay.BindApi(EglApi.OpenGl);
 
-        if (_eglDisplay == IntPtr.Zero)
-        {
-            throw new InvalidOperationException("No EGL display is available for the native display connection.");
-        }
-
-        if (!LinuxInterop.eglInitialize(_eglDisplay, out _, out _))
-        {
-            throw new InvalidOperationException($"eglInitialize failed (0x{LinuxInterop.eglGetError():X}).");
-        }
-
-        if (!LinuxInterop.eglBindAPI(LinuxInterop.EglOpenGlApi))
-        {
-            throw new InvalidOperationException("The EGL implementation does not support desktop OpenGL.");
-        }
-
-        int* configAttribs = stackalloc int[]
-        {
-            LinuxInterop.EglSurfaceType, LinuxInterop.EglWindowBit,
-            LinuxInterop.EglRenderableType, LinuxInterop.EglOpenGlBit,
-            LinuxInterop.EglRedSize, 8,
-            LinuxInterop.EglGreenSize, 8,
-            LinuxInterop.EglBlueSize, 8,
-            LinuxInterop.EglAlphaSize, 8,
-            LinuxInterop.EglDepthSize, 24,
-            LinuxInterop.EglNone,
-        };
-        IntPtr config;
-        if (session.RequiredNativeVisualId is { } visualId)
-        {
-            var configs = stackalloc IntPtr[64];
-            if (!LinuxInterop.eglChooseConfig(_eglDisplay, configAttribs, configs, 64, out var matchCount) ||
-                matchCount < 1)
-            {
-                throw new InvalidOperationException("No usable EGL config is available.");
-            }
-
-            config = configs[0];
-            for (var i = 0; i < matchCount; i++)
-            {
-                if (LinuxInterop.eglGetConfigAttrib(
-                        _eglDisplay, configs[i], LinuxInterop.EglNativeVisualId, out var id) &&
-                    id == visualId)
-                {
-                    config = configs[i];
-                    break;
-                }
-            }
-        }
-        else if (!LinuxInterop.eglChooseConfig(_eglDisplay, configAttribs, out config, 1, out var configCount) ||
-            configCount < 1)
+        var configs = _eglDisplay.ChooseConfigs(
+        [
+            Libegl.EGL_SURFACE_TYPE, Libegl.EGL_WINDOW_BIT,
+            Libegl.EGL_RENDERABLE_TYPE, Libegl.EGL_OPENGL_BIT,
+            Libegl.EGL_RED_SIZE, 8,
+            Libegl.EGL_GREEN_SIZE, 8,
+            Libegl.EGL_BLUE_SIZE, 8,
+            Libegl.EGL_ALPHA_SIZE, 8,
+            Libegl.EGL_DEPTH_SIZE, 24,
+        ]);
+        if (configs.Length == 0)
         {
             throw new InvalidOperationException("No usable EGL config is available.");
         }
 
-        int* contextAttribs = stackalloc int[]
+        var config = configs[0];
+        if (session.RequiredNativeVisualId is { } visualId)
         {
-            LinuxInterop.EglContextMajorVersion, 3,
-            LinuxInterop.EglContextMinorVersion, 3,
-            LinuxInterop.EglContextOpenGlProfileMask, LinuxInterop.EglContextOpenGlCoreProfileBit,
-            LinuxInterop.EglNone,
-        };
-        _eglContext = LinuxInterop.eglCreateContext(_eglDisplay, config, IntPtr.Zero, contextAttribs);
-        if (_eglContext == IntPtr.Zero)
-        {
-            throw new InvalidOperationException(
-                $"An OpenGL 3.3 core context could not be created (0x{LinuxInterop.eglGetError():X}).");
+            // On the GBM platform the native visual is a gbm format; a config
+            // that does not match the gbm surface's format cannot present.
+            config = Array.Find(
+                configs, c => c.GetAttribute(Libegl.EGL_NATIVE_VISUAL_ID) == visualId) ?? config;
         }
 
-        _eglSurface = LinuxInterop.eglCreateWindowSurface(_eglDisplay, config, session.NativeWindowHandle, null);
-        if (_eglSurface == IntPtr.Zero)
+        _eglContext = _eglDisplay.CreateContext(config, attribs:
+        [
+            Libegl.EGL_CONTEXT_MAJOR_VERSION, 3,
+            Libegl.EGL_CONTEXT_MINOR_VERSION, 3,
+            Libegl.EGL_CONTEXT_OPENGL_PROFILE_MASK, Libegl.EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+        ]);
+        _eglSurface = _eglDisplay.CreateWindowSurface(config, session.NativeWindowHandle);
+        _eglContext.MakeCurrent(_eglSurface);
+
+        // Never block on vsync; frame pacing is ours. A driver that rejects
+        // interval 0 costs only pacing, so it must not fail initialization.
+        try
         {
-            throw new InvalidOperationException(
-                $"eglCreateWindowSurface failed (0x{LinuxInterop.eglGetError():X}).");
+            _eglDisplay.SwapInterval(0);
+        }
+        catch (EglException)
+        {
         }
 
-        if (!LinuxInterop.eglMakeCurrent(_eglDisplay, _eglSurface, _eglSurface, _eglContext))
-        {
-            throw new InvalidOperationException($"eglMakeCurrent failed (0x{LinuxInterop.eglGetError():X}).");
-        }
-
-        // Never block on vsync; frame pacing is ours.
-        LinuxInterop.eglSwapInterval(_eglDisplay, 0);
         Gl.Initialize(GetGlFunction);
     }
 
     private static IntPtr GetGlFunction(string name)
     {
-        var pointer = LinuxInterop.eglGetProcAddress(name);
+        var utf8 = System.Text.Encoding.UTF8.GetBytes(name + "\0");
+        IntPtr pointer;
+        fixed (byte* namePtr = utf8)
+        {
+            pointer = (IntPtr)Libegl.eglGetProcAddress((sbyte*)namePtr);
+        }
+
         if (pointer != IntPtr.Zero)
         {
             return pointer;
@@ -384,8 +349,8 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
             instance.InGlScope = false;
         }
 
-        LinuxInterop.eglSwapBuffers(_eglDisplay, _eglSurface);
-        session.AfterSwap(_eglDisplay, _eglSurface);
+        _eglSurface!.SwapBuffers();
+        session.AfterSwap(_eglDisplay!.Handle, _eglSurface.Handle);
     }
 
     private void EnsureInstance()
@@ -462,28 +427,28 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
             _instance = null;
         }
 
-        if (_eglDisplay != IntPtr.Zero)
+        if (_eglDisplay is { } display)
         {
-            if (_eglContext != IntPtr.Zero)
+            if (_eglContext is not null)
             {
                 _pipeline.Release();
             }
 
-            LinuxInterop.eglMakeCurrent(_eglDisplay, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            if (_eglSurface != IntPtr.Zero)
+            try
             {
-                LinuxInterop.eglDestroySurface(_eglDisplay, _eglSurface);
-                _eglSurface = IntPtr.Zero;
+                display.ReleaseCurrent();
+            }
+            catch (EglException)
+            {
+                // Teardown must run to completion even without a current context.
             }
 
-            if (_eglContext != IntPtr.Zero)
-            {
-                LinuxInterop.eglDestroyContext(_eglDisplay, _eglContext);
-                _eglContext = IntPtr.Zero;
-            }
-
-            LinuxInterop.eglTerminate(_eglDisplay);
-            _eglDisplay = IntPtr.Zero;
+            _eglSurface?.Dispose();
+            _eglSurface = null;
+            _eglContext?.Dispose();
+            _eglContext = null;
+            display.Dispose();
+            _eglDisplay = null;
         }
 
         _session?.Dispose();

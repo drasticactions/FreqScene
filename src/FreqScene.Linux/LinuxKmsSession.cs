@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using Drm;
 using Drm.Native;
+using Mesa.Egl;
+using Mesa.Gbm;
+using Mesa.Native;
 
 namespace FreqScene;
 
@@ -17,9 +20,9 @@ public sealed class LinuxKmsSession : ILinuxGlSession
     private readonly DrmDevice _device = null!;
 
     private int _fd = -1;
-    private IntPtr _gbmDevice;
-    private IntPtr _gbmSurface;
-    private IntPtr _previousBo;
+    private GbmDevice? _gbmDevice;
+    private GbmSurface? _gbmSurface;
+    private GbmBuffer? _previousBo;
     private readonly Dictionary<IntPtr, DrmFramebuffer> _framebuffersByBo = [];
 
     private bool _needsModeset = true;
@@ -37,21 +40,11 @@ public sealed class LinuxKmsSession : ILinuxGlSession
                 PickOutput(_seat, connectorName, modeSpec);
             _device = DrmDevice.FromFd(_fd);
 
-            _gbmDevice = GbmInterop.gbm_create_device(_fd);
-            if (_gbmDevice == IntPtr.Zero)
-            {
-                throw new InvalidOperationException($"gbm_create_device failed for {_devicePath}.");
-            }
-
-            _gbmSurface = GbmInterop.gbm_surface_create(
-                _gbmDevice, _mode.HorizontalDisplay, _mode.VerticalDisplay,
-                GbmInterop.GbmFormatArgb8888,
-                GbmInterop.GbmBoUseScanout | GbmInterop.GbmBoUseRendering);
-            if (_gbmSurface == IntPtr.Zero)
-            {
-                throw new InvalidOperationException(
-                    $"gbm_surface_create failed for {_mode.HorizontalDisplay}x{_mode.VerticalDisplay} on {_connectorName}.");
-            }
+            _gbmDevice = GbmDevice.Create(_fd);
+            _gbmSurface = _gbmDevice.CreateSurface(
+                _mode.HorizontalDisplay, _mode.VerticalDisplay,
+                Libgbm.GBM_FORMAT_ARGB8888,
+                GbmBufferFlags.Scanout | GbmBufferFlags.Rendering);
 
             Trace.TraceInformation(
                 $"[kms] {_connectorName} on {_devicePath}: {_mode.HorizontalDisplay}x{_mode.VerticalDisplay}@{_mode.VerticalRefresh}");
@@ -63,13 +56,13 @@ public sealed class LinuxKmsSession : ILinuxGlSession
         }
     }
 
-    public uint EglPlatform => LinuxInterop.EglPlatformGbmKhr;
+    public EglPlatform EglPlatform => EglPlatform.Gbm;
 
-    public IntPtr NativeDisplayHandle => _gbmDevice;
+    public IntPtr NativeDisplayHandle => _gbmDevice?.Handle ?? IntPtr.Zero;
 
-    public IntPtr NativeWindowHandle => _gbmSurface;
+    public IntPtr NativeWindowHandle => _gbmSurface?.Handle ?? IntPtr.Zero;
 
-    public int? RequiredNativeVisualId => unchecked((int)GbmInterop.GbmFormatArgb8888);
+    public int? RequiredNativeVisualId => unchecked((int)Libgbm.GBM_FORMAT_ARGB8888);
 
     public int PixelWidth => _mode.HorizontalDisplay;
 
@@ -143,9 +136,15 @@ public sealed class LinuxKmsSession : ILinuxGlSession
 
     public void AfterSwap(IntPtr eglDisplay, IntPtr eglSurface)
     {
-        var bo = GbmInterop.gbm_surface_lock_front_buffer(_gbmSurface);
-        if (bo == IntPtr.Zero)
+        GbmBuffer bo;
+        try
         {
+            bo = _gbmSurface!.LockFrontBuffer();
+        }
+        catch (GbmException)
+        {
+            // No front buffer means the preceding swap did not complete;
+            // skip presenting this frame.
             return;
         }
 
@@ -189,15 +188,11 @@ public sealed class LinuxKmsSession : ILinuxGlSession
         {
             if (!presented)
             {
-                GbmInterop.gbm_surface_release_buffer(_gbmSurface, bo);
+                bo.Dispose();
             }
             else
             {
-                if (_previousBo != IntPtr.Zero)
-                {
-                    GbmInterop.gbm_surface_release_buffer(_gbmSurface, _previousBo);
-                }
-
+                _previousBo?.Dispose();
                 _previousBo = bo;
             }
         }
@@ -212,23 +207,12 @@ public sealed class LinuxKmsSession : ILinuxGlSession
 
         _framebuffersByBo.Clear();
 
-        if (_previousBo != IntPtr.Zero && _gbmSurface != IntPtr.Zero)
-        {
-            GbmInterop.gbm_surface_release_buffer(_gbmSurface, _previousBo);
-            _previousBo = IntPtr.Zero;
-        }
-
-        if (_gbmSurface != IntPtr.Zero)
-        {
-            GbmInterop.gbm_surface_destroy(_gbmSurface);
-            _gbmSurface = IntPtr.Zero;
-        }
-
-        if (_gbmDevice != IntPtr.Zero)
-        {
-            GbmInterop.gbm_device_destroy(_gbmDevice);
-            _gbmDevice = IntPtr.Zero;
-        }
+        _previousBo?.Dispose();
+        _previousBo = null;
+        _gbmSurface?.Dispose();
+        _gbmSurface = null;
+        _gbmDevice?.Dispose();
+        _gbmDevice = null;
 
         _device?.Dispose();
 
@@ -458,21 +442,19 @@ public sealed class LinuxKmsSession : ILinuxGlSession
         return Directory.GetFiles("/dev/dri", "card*").Order(StringComparer.Ordinal);
     }
 
-    private DrmFramebuffer? GetFramebuffer(IntPtr bo)
+    private DrmFramebuffer? GetFramebuffer(GbmBuffer bo)
     {
-        if (_framebuffersByBo.TryGetValue(bo, out var existing))
+        if (_framebuffersByBo.TryGetValue(bo.Handle, out var existing))
         {
             return existing;
         }
 
-        var handle = (uint)GbmInterop.gbm_bo_get_handle(bo);
-        var stride = GbmInterop.gbm_bo_get_stride(bo);
         try
         {
             var framebuffer = _device.AddFramebuffer(
                 _mode.HorizontalDisplay, _mode.VerticalDisplay, Libdrm.DRM_FORMAT_ARGB8888,
-                [handle], [stride], [0u]);
-            _framebuffersByBo[bo] = framebuffer;
+                [bo.GemHandle], [bo.Stride], [0u]);
+            _framebuffersByBo[bo.Handle] = framebuffer;
             return framebuffer;
         }
         catch (DrmException ex)

@@ -1,8 +1,10 @@
+using Mesa.Egl;
+
 namespace FreqScene;
 
 public interface ILinuxGlSession : IDisposable
 {
-    uint EglPlatform { get; }
+    EglPlatform EglPlatform { get; }
 
     IntPtr NativeDisplayHandle { get; }
 
