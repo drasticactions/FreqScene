@@ -7,6 +7,8 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Silk.NET.OpenAL" />
+    <PackageReference Include="Silk.NET.OpenAL.Extensions.EXT" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
     <ProjectReference Include="../ProjectMDotNet/ProjectMDotNet.csproj" />
     <ProjectReference Include="../FreqScene.Remote.Server/FreqScene.Remote.Server.csproj" />

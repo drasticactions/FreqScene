@@ -1,3 +1,6 @@
+using Silk.NET.OpenAL;
+using Silk.NET.OpenAL.Extensions.EXT;
+
 namespace FreqScene;
 
 public sealed unsafe class CaptureAudioSource : IDisposable
@@ -8,15 +11,19 @@ public sealed unsafe class CaptureAudioSource : IDisposable
 
     private readonly Action<short[]> _sink;
     private readonly CancellationTokenSource _cts = new();
-    private readonly IntPtr _device;
+    private readonly Capture _capture;
+    private readonly Device* _device;
     private Thread? _thread;
 
     public CaptureAudioSource(string? deviceName, Action<short[]> sink)
     {
         _sink = sink;
-        _device = OpenAlCapture.alcCaptureOpenDevice(
-            deviceName, SampleRate, OpenAlCapture.FormatStereo16, BufferFrames);
-        if (_device == IntPtr.Zero)
+        _capture = OpenAlCapture.CaptureApi
+            ?? throw new InvalidOperationException("OpenAL capture is not available on this system.");
+
+        deviceName ??= OpenAlCapture.DefaultCaptureDevice;
+        _device = _capture.CaptureOpenDevice(deviceName!, SampleRate, BufferFormat.Stereo16, BufferFrames);
+        if (_device is null)
         {
             throw new InvalidOperationException($"Could not open capture device '{deviceName ?? "(default)"}'.");
         }
@@ -24,7 +31,7 @@ public sealed unsafe class CaptureAudioSource : IDisposable
 
     public void Start()
     {
-        OpenAlCapture.alcCaptureStart(_device);
+        _capture.CaptureStart(_device);
         _thread = new Thread(Run) { IsBackground = true, Name = "AudioCapture" };
         _thread.Start();
     }
@@ -33,8 +40,8 @@ public sealed unsafe class CaptureAudioSource : IDisposable
     {
         _cts.Cancel();
         _thread?.Join(millisecondsTimeout: 500);
-        OpenAlCapture.alcCaptureStop(_device);
-        OpenAlCapture.alcCaptureCloseDevice(_device);
+        _capture.CaptureStop(_device);
+        _capture.CaptureCloseDevice(_device);
         _cts.Dispose();
     }
 
@@ -42,15 +49,13 @@ public sealed unsafe class CaptureAudioSource : IDisposable
     {
         while (!_cts.IsCancellationRequested)
         {
-            int availableFrames;
-            OpenAlCapture.alcGetIntegerv(_device, OpenAlCapture.CaptureSamplesParam, 1, &availableFrames);
-
+            var availableFrames = _capture.GetAvailableSamples(_device);
             if (availableFrames >= MinChunkFrames)
             {
                 var chunk = new short[availableFrames * 2];
                 fixed (short* buffer = chunk)
                 {
-                    OpenAlCapture.alcCaptureSamples(_device, buffer, availableFrames);
+                    _capture.CaptureSamples(_device, buffer, availableFrames);
                 }
 
                 _sink(chunk);

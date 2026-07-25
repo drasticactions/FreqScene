@@ -1,22 +1,28 @@
-using System.Runtime.InteropServices;
+using Silk.NET.OpenAL;
+using Silk.NET.OpenAL.Extensions.EXT;
+using Silk.NET.OpenAL.Extensions.EXT.Enumeration;
 
 namespace FreqScene;
 
-internal static unsafe partial class OpenAlCapture
+internal static class OpenAlCapture
 {
-    internal const int FormatStereo16 = 0x1103;
-    internal const int CaptureSamplesParam = 0x312;
+    private static readonly Lazy<Apis?> Loaded = new(Load);
 
-    private const int CaptureDeviceSpecifier = 0x310;
-    private const string LogicalName = "openal-capture";
+    internal static bool IsAvailable => Loaded.Value is not null;
 
-    private static readonly Lazy<IntPtr> Library = new(LoadLibrary);
+    internal static Capture? CaptureApi => Loaded.Value?.Capture;
 
-    internal static bool IsAvailable => Library.Value != IntPtr.Zero;
-
-    static OpenAlCapture() =>
-        NativeLibrary.SetDllImportResolver(typeof(OpenAlCapture).Assembly, (name, _, _) =>
-            name == LogicalName ? Library.Value : IntPtr.Zero);
+    internal static string? DefaultCaptureDevice
+    {
+        get
+        {
+            unsafe
+            {
+                return Loaded.Value?.Enumeration?.GetString(
+                    null, GetCaptureEnumerationContextString.DefaultCaptureDeviceSpecifier);
+            }
+        }
+    }
 
     /// <summary>
     /// Names of all available capture devices, or empty when OpenAL is unavailable.
@@ -24,69 +30,40 @@ internal static unsafe partial class OpenAlCapture
     internal static IReadOnlyList<string> GetCaptureDevices()
     {
         var devices = new List<string>();
-        if (!IsAvailable)
+        if (Loaded.Value?.Enumeration is { } enumeration)
         {
-            return devices;
-        }
-
-        // Null-separated, double-null-terminated UTF-8 list.
-        var cursor = (byte*)alcGetString(IntPtr.Zero, CaptureDeviceSpecifier);
-        while (cursor is not null && *cursor != 0)
-        {
-            var name = Marshal.PtrToStringUTF8((IntPtr)cursor);
-            if (!string.IsNullOrEmpty(name))
-            {
-                devices.Add(name);
-            }
-
-            while (*cursor != 0)
-            {
-                cursor++;
-            }
-
-            cursor++;
+            devices.AddRange(enumeration.GetStringList(GetCaptureContextStringList.CaptureDeviceSpecifiers));
         }
 
         return devices;
     }
 
-    [LibraryImport(LogicalName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial IntPtr alcCaptureOpenDevice(string? devicename, uint frequency, int format, int buffersize);
+    private sealed record Apis(ALContext Alc, Capture Capture, CaptureEnumerationEnumeration? Enumeration);
 
-    [LibraryImport(LogicalName)]
-    internal static partial byte alcCaptureCloseDevice(IntPtr device);
-
-    [LibraryImport(LogicalName)]
-    internal static partial void alcCaptureStart(IntPtr device);
-
-    [LibraryImport(LogicalName)]
-    internal static partial void alcCaptureStop(IntPtr device);
-
-    [LibraryImport(LogicalName)]
-    internal static partial void alcCaptureSamples(IntPtr device, void* buffer, int samples);
-
-    [LibraryImport(LogicalName)]
-    internal static partial void alcGetIntegerv(IntPtr device, int param, int size, int* values);
-
-    [LibraryImport(LogicalName)]
-    private static partial IntPtr alcGetString(IntPtr device, int param);
-
-    private static IntPtr LoadLibrary()
+    private static Apis? Load()
     {
-        string[] candidates = OperatingSystem.IsMacOS()
-            ? ["libopenal.dylib", "openal", "/opt/homebrew/lib/libopenal.dylib", "/usr/local/lib/libopenal.dylib", "/System/Library/Frameworks/OpenAL.framework/OpenAL"]
-            : OperatingSystem.IsWindows()
-                ? ["openal", "soft_oal.dll", "openal32.dll"]
-                : ["openal", "libopenal.so.1", "libopenal.so"];
-
-        foreach (var candidate in candidates)
+        ALContext alc;
+        try
         {
-            if (NativeLibrary.TryLoad(candidate, typeof(OpenAlCapture).Assembly, null, out var handle))
-            {
-                return handle;
-            }
+            alc = ALContext.GetApi();
+        }
+        catch (Exception)
+        {
+            return null;
         }
 
-        return IntPtr.Zero;
+        unsafe
+        {
+            if (!alc.IsExtensionPresent(null, "ALC_EXT_CAPTURE"))
+            {
+                alc.Dispose();
+                return null;
+            }
+
+            var enumeration = alc.IsExtensionPresent(null, "ALC_ENUMERATION_EXT")
+                ? new CaptureEnumerationEnumeration(alc.Context)
+                : null;
+            return new Apis(alc, new Capture(alc.Context), enumeration);
+        }
     }
 }
