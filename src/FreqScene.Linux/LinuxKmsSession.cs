@@ -80,6 +80,8 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
 
     public string ConnectorName => _connectorName;
 
+    public bool UsesLibseat => _seat.UsesLibseat;
+
     public void RequestShow()
     {
         // A KMS output is always "shown" while connected and the seat is active.

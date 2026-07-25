@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace FreqScene.Cli;
@@ -57,6 +58,10 @@ internal static class Program
         {
             Description = "List available audio sources.",
         };
+        var verboseOption = new Option<bool>("--verbose")
+        {
+            Description = "Show verbose diagnostic output.",
+        };
         var presetsArgument = new Argument<string[]>("presets")
         {
             Description = "Preset files or folders to add to the playlist.",
@@ -69,7 +74,7 @@ internal static class Program
             outputOption, modeOption, backendOption, audioOption, configDirOption,
             noRemoteOption, portOption, pairOption, connectOption,
             listOutputsOption, listAudioOption, listServersOption,
-            presetsArgument,
+            verboseOption, presetsArgument,
         };
 
         root.SetAction(parseResult => Run(new CliOptions(
@@ -85,6 +90,7 @@ internal static class Program
             parseResult.GetValue(listOutputsOption),
             parseResult.GetValue(listAudioOption),
             parseResult.GetValue(listServersOption),
+            parseResult.GetValue(verboseOption),
             parseResult.GetValue(presetsArgument) ?? [])));
 
         return root.Parse(args).Invoke();
@@ -103,6 +109,7 @@ internal static class Program
         bool ListOutputs,
         bool ListAudio,
         bool ListServers,
+        bool Verbose,
         string[] Presets);
 
     private static int Run(CliOptions options)
@@ -112,6 +119,8 @@ internal static class Program
             Console.Error.WriteLine("freqscene-cli only runs on Linux.");
             return 1;
         }
+
+        Trace.Listeners.Add(new CliTraceListener(options.Verbose));
 
         if (options.ListOutputs)
         {

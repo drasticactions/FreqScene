@@ -1,10 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- This assembly only ever runs on Linux, but annotating it
+         [SupportedOSPlatform("linux")] would cascade CA1416 into every
+         cross-platform head that references it. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NWayland" />
     <PackageReference Include="NWayland.Protocols.Wlr" />
+    <PackageReference Include="seatd-dotnet" />
     <ProjectReference Include="../FreqScene.Core/FreqScene.Core.csproj" />
   </ItemGroup>
 </Project>

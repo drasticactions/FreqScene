@@ -1,33 +1,15 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Seatd;
 
 namespace FreqScene;
 
-internal static unsafe partial class SeatInterop
+internal static partial class SeatInterop
 {
-    private const string Seat = "libseat.so.1";
     private const string Libc = "libc";
 
     private const int ORdwr = 0x2;
     private const int OCloexec = 0x80000;
-
-    [LibraryImport(Seat)]
-    public static partial IntPtr libseat_open_seat(IntPtr listener, IntPtr userdata);
-
-    [LibraryImport(Seat)]
-    public static partial int libseat_close_seat(IntPtr seat);
-
-    [LibraryImport(Seat, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial int libseat_open_device(IntPtr seat, string path, out int fd);
-
-    [LibraryImport(Seat)]
-    public static partial int libseat_close_device(IntPtr seat, int deviceId);
-
-    [LibraryImport(Seat)]
-    public static partial int libseat_dispatch(IntPtr seat, int timeoutMs);
-
-    [LibraryImport(Seat)]
-    public static partial int libseat_disable_seat(IntPtr seat);
 
     [LibraryImport(Libc, SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int open(string path, int flags);
@@ -38,94 +20,124 @@ internal static unsafe partial class SeatInterop
     public static int OpenReadWrite(string path) => open(path, ORdwr | OCloexec);
 }
 
-internal sealed unsafe class SeatSession : IDisposable
+internal sealed class SeatSession : IDisposable
 {
-    private static SeatSession? s_active;
-    private static IntPtr s_listener;
+    private readonly Seat? _seat;
+    private readonly Dictionary<int, SeatDevice> _devicesByFd = [];
 
-    private readonly IntPtr _seat;
-    private readonly Dictionary<int, int> _deviceIdsByFd = [];
-    private volatile bool _enabled;
-    private volatile bool _disableRequested;
+    private SeatSession(Seat? seat) => _seat = seat;
 
-    private SeatSession(IntPtr seat)
-    {
-        _seat = seat;
-        _enabled = seat == IntPtr.Zero;
-    }
+    public bool Enabled => _seat?.IsActive ?? true;
 
-    public bool Enabled => _enabled;
-
-    public bool UsesLibseat => _seat != IntPtr.Zero;
+    public bool UsesLibseat => _seat is not null;
 
     public static SeatSession Open()
     {
-        if (s_active is not null)
-        {
-            throw new InvalidOperationException("Only one seat session can be active per process.");
-        }
-
-        IntPtr seat = IntPtr.Zero;
+        Seat? seat = null;
         try
         {
-            if (s_listener == IntPtr.Zero)
-            {
-                var listener = (IntPtr*)NativeMemory.Alloc((nuint)(sizeof(IntPtr) * 2));
-                listener[0] = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, void>)&OnEnableSeat;
-                listener[1] = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, void>)&OnDisableSeat;
-                s_listener = (IntPtr)listener;
-            }
-
-            seat = SeatInterop.libseat_open_seat(s_listener, IntPtr.Zero);
+            InstallLogForwarder();
+            seat = Seat.Open();
         }
         catch (DllNotFoundException)
         {
             // No libseat on this box; the direct-open fallback below still works for
             // root or the video group when no other DRM master is around.
+            Emit("libseat is not installed; opening DRM devices directly.");
+        }
+        catch (SeatdException ex)
+        {
+            // libseat is present but no seat provider (seatd/logind) took us; same
+            // direct-open fallback applies.
+            Emit($"libseat could not open a seat ({ex.Message}); opening DRM devices directly.");
         }
 
-        var session = new SeatSession(seat);
-        s_active = session;
+        if (seat is null)
+        {
+            return new SeatSession(null);
+        }
 
-        if (seat != IntPtr.Zero)
+        try
         {
             // logind delivers the initial enable asynchronously.
             var deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 5;
-            while (!session._enabled && Stopwatch.GetTimestamp() < deadline)
+            while (!seat.IsActive && Stopwatch.GetTimestamp() < deadline)
             {
-                if (SeatInterop.libseat_dispatch(seat, 100) < 0)
+                try
+                {
+                    seat.Dispatch(100);
+                }
+                catch (SeatdException)
                 {
                     break;
                 }
             }
 
-            if (!session._enabled)
+            if (!seat.IsActive)
             {
-                session.Dispose();
                 throw new InvalidOperationException(
                     "The seat did not become active within 5 seconds (is another session using this seat?).");
             }
         }
-        else
+        catch
         {
-            Trace.TraceInformation("[kms] libseat unavailable; opening DRM devices directly.");
+            seat.Dispose();
+            throw;
         }
 
-        return session;
+        string seatName;
+        try
+        {
+            seatName = seat.Name;
+        }
+        catch (SeatdException)
+        {
+            // The name is only for the log line; never let it fail the session.
+            seatName = "unknown";
+        }
+
+        Emit($"using libseat for session control (seat: {seatName}).");
+        return new SeatSession(seat);
     }
+
+    private static void InstallLogForwarder()
+    {
+        // Ask libseat for everything and let trace listeners filter: debug
+        // goes out as verbose Trace.WriteLine, the rest at matching levels.
+        SeatLog.SetHandler((level, message) =>
+        {
+            switch (level)
+            {
+                case SeatLogLevel.Error:
+                    Trace.TraceError($"[kms] libseat: {message}");
+                    break;
+                case SeatLogLevel.Debug:
+                    Trace.WriteLine($"[kms] libseat: {message}");
+                    break;
+                default:
+                    Trace.TraceInformation($"[kms] libseat: {message}");
+                    break;
+            }
+        });
+        SeatLog.SetLevel(SeatLogLevel.Debug);
+    }
+
+    private static void Emit(string message) => Trace.TraceInformation($"[kms] {message}");
 
     public int OpenDevice(string path)
     {
-        if (_seat != IntPtr.Zero)
+        if (_seat is not null)
         {
-            var deviceId = SeatInterop.libseat_open_device(_seat, path, out var fd);
-            if (deviceId < 0)
+            try
+            {
+                var device = _seat.OpenDevice(path);
+                _devicesByFd[device.FileDescriptor] = device;
+                return device.FileDescriptor;
+            }
+            catch (SeatdException)
             {
                 return -1;
             }
-
-            _deviceIdsByFd[fd] = deviceId;
-            return fd;
         }
 
         var directFd = SeatInterop.OpenReadWrite(path);
@@ -144,11 +156,11 @@ internal sealed unsafe class SeatSession : IDisposable
             return;
         }
 
-        if (_seat != IntPtr.Zero)
+        if (_seat is not null)
         {
-            if (_deviceIdsByFd.Remove(fd, out var deviceId))
+            if (_devicesByFd.Remove(fd, out var device))
             {
-                SeatInterop.libseat_close_device(_seat, deviceId);
+                device.Dispose();
             }
 
             return;
@@ -159,48 +171,30 @@ internal sealed unsafe class SeatSession : IDisposable
 
     public void Dispatch()
     {
-        if (_seat == IntPtr.Zero)
+        if (_seat is null)
         {
             return;
         }
 
-        SeatInterop.libseat_dispatch(_seat, 0);
-        if (_disableRequested)
+        try
         {
-            _disableRequested = false;
-            SeatInterop.libseat_disable_seat(_seat);
+            _seat.Dispatch(0);
+        }
+        catch (SeatdException)
+        {
+            // A dead seatd/logind connection must not take down the render loop;
+            // rendering pauses via Enabled until the seat comes back.
         }
     }
 
     public void Dispose()
     {
-        if (_seat != IntPtr.Zero)
+        foreach (var device in _devicesByFd.Values)
         {
-            SeatInterop.libseat_close_seat(_seat);
+            device.Dispose();
         }
 
-        if (s_active == this)
-        {
-            s_active = null;
-        }
-    }
-
-    [UnmanagedCallersOnly]
-    private static void OnEnableSeat(IntPtr seat, IntPtr userdata)
-    {
-        if (s_active is { } session)
-        {
-            session._enabled = true;
-        }
-    }
-
-    [UnmanagedCallersOnly]
-    private static void OnDisableSeat(IntPtr seat, IntPtr userdata)
-    {
-        if (s_active is { } session)
-        {
-            session._enabled = false;
-            session._disableRequested = true;
-        }
+        _devicesByFd.Clear();
+        _seat?.Dispose();
     }
 }
