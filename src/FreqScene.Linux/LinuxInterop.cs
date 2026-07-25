@@ -4,17 +4,7 @@ namespace FreqScene;
 
 internal static partial class LinuxInterop
 {
-    private const string WaylandEgl = "libwayland-egl.so.1";
     private const string Libc = "libc";
-
-    [LibraryImport(WaylandEgl)]
-    public static partial IntPtr wl_egl_window_create(IntPtr surface, int width, int height);
-
-    [LibraryImport(WaylandEgl)]
-    public static partial void wl_egl_window_destroy(IntPtr window);
-
-    [LibraryImport(WaylandEgl)]
-    public static partial void wl_egl_window_resize(IntPtr window, int width, int height, int dx, int dy);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PollFd

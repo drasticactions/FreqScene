@@ -9,9 +9,12 @@
   <ItemGroup>
     <PackageReference Include="drm-dotnet" />
     <PackageReference Include="mesa-dotnet" />
-    <PackageReference Include="NWayland" />
-    <PackageReference Include="NWayland.Protocols.Wlr" />
     <PackageReference Include="seatd-dotnet" />
+    <PackageReference Include="WaylandSharpest" />
     <ProjectReference Include="../FreqScene.Core/FreqScene.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <WaylandProtocol Include="protocol/xdg-shell.xml" WaylandNamespace="FreqScene.WaylandProtocols" />
+    <WaylandProtocol Include="protocol/wlr-layer-shell-unstable-v1.xml" WaylandNamespace="FreqScene.WaylandProtocols" />
   </ItemGroup>
 </Project>

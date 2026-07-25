@@ -1,9 +1,9 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
+using FreqScene.WaylandProtocols;
 using Mesa.Egl;
-using NWayland.Protocols.Wayland;
-using NWayland.Protocols.Wlr.WlrLayerShellUnstableV1;
-using NWayland.Protocols.XdgShell;
+using Wayland;
+using Wayland.Egl;
+using Wayland.Native;
 
 namespace FreqScene;
 
@@ -31,7 +31,7 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
     private XdgSurface? _xdgSurface;
     private XdgToplevel? _toplevel;
     private ZwlrLayerSurfaceV1? _layerSurface;
-    private IntPtr _eglWindow;
+    private WlEglWindow? _eglWindow;
 
     private int _logicalWidth;
     private int _logicalHeight;
@@ -61,10 +61,8 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         _display = WlDisplay.Connect();
         try
         {
-            _registry = _display.GetRegistry(new WlRegistry.Listener.Relay
-            {
-                OnGlobal = OnGlobal,
-            });
+            _registry = _display.GetRegistry();
+            _registry.Global += OnGlobal;
 
             // For whatever reason, we need to do this to get all the values.
             _display.Roundtrip();
@@ -93,21 +91,12 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
 
             while (!_configured)
             {
-                if (_display.Dispatch() < 0)
-                {
-                    throw new InvalidOperationException("The Wayland connection failed while waiting for the initial configure.");
-                }
+                _display.Dispatch();
             }
 
             _visible = true;
-            _eglWindow = LinuxInterop.wl_egl_window_create(
-                _surface!.Handle, _logicalWidth * _scale, _logicalHeight * _scale);
-            if (_eglWindow == IntPtr.Zero)
-            {
-                throw new InvalidOperationException("wl_egl_window_create failed.");
-            }
-
-            _surface.SetBufferScale(_scale);
+            _eglWindow = new WlEglWindow(_surface!, _logicalWidth * _scale, _logicalHeight * _scale);
+            _surface!.SetBufferScale(_scale);
             _appliedScale = _scale;
             _appliedWidth = _logicalWidth;
             _appliedHeight = _logicalHeight;
@@ -119,15 +108,15 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         }
     }
 
-    public IntPtr DisplayHandle => _display.Handle;
+    public IntPtr DisplayHandle => _display.RawHandle;
 
-    public IntPtr EglWindowHandle => _eglWindow;
+    public IntPtr EglWindowHandle => _eglWindow?.RawHandle ?? IntPtr.Zero;
 
     public EglPlatform EglPlatform => EglPlatform.Wayland;
 
-    public IntPtr NativeDisplayHandle => _display.Handle;
+    public IntPtr NativeDisplayHandle => _display.RawHandle;
 
-    public IntPtr NativeWindowHandle => _eglWindow;
+    public IntPtr NativeWindowHandle => _eglWindow?.RawHandle ?? IntPtr.Zero;
 
     public int? RequiredNativeVisualId => null;
 
@@ -149,10 +138,8 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         {
             using var display = WlDisplay.Connect();
             var found = false;
-            using var registry = display.GetRegistry(new WlRegistry.Listener.Relay
-            {
-                OnGlobal = (_, _, iface, _) => found |= iface == "zwlr_layer_shell_v1",
-            });
+            using var registry = display.GetRegistry();
+            registry.Global += (_, e) => found |= e.Interface == "zwlr_layer_shell_v1";
             display.Roundtrip();
             return found;
         }
@@ -168,31 +155,28 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         {
             using var display = WlDisplay.Connect();
             var entries = new List<OutputEntry>();
-            using var registry = display.GetRegistry(new WlRegistry.Listener.Relay
+            using var registry = display.GetRegistry();
+            registry.Global += (_, e) =>
             {
-                OnGlobal = (reg, name, iface, version) =>
+                if (e.Interface != "wl_output")
                 {
-                    if (iface != "wl_output")
-                    {
-                        return;
-                    }
+                    return;
+                }
 
-                    var entry = new OutputEntry { Index = entries.Count };
-                    entry.Output = WlOutput.Bind(reg, name, Math.Min(version, 4u), new WlOutput.Listener.Relay
+                var entry = new OutputEntry { Index = entries.Count };
+                var output = registry.Bind<WlOutput>(e.Name, Math.Min(e.Version, 4u));
+                output.ModeEvent += (_, args) =>
+                {
+                    if ((args.Flags & WlOutput.Mode.Current) != 0)
                     {
-                        OnMode = (_, flags, width, height, _) =>
-                        {
-                            if ((flags & WlOutput.ModeEnum.Current) != 0)
-                            {
-                                entry.Width = width;
-                                entry.Height = height;
-                            }
-                        },
-                        OnName = (_, outputName) => entry.Name = outputName,
-                    });
-                    entries.Add(entry);
-                },
-            });
+                        entry.Width = args.Width;
+                        entry.Height = args.Height;
+                    }
+                };
+                output.Name += (_, args) => entry.Name = args.Name;
+                entry.Output = output;
+                entries.Add(entry);
+            };
             display.Roundtrip();
             display.Roundtrip();
 
@@ -221,19 +205,24 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         // The compositor presents Wayland buffers; nothing to do here.
     }
 
-    public void PumpEvents()
+    public unsafe void PumpEvents()
     {
         _display.DispatchPending();
-        _display.Flush();
-        if (_display.PrepareRead() == 0)
+
+        // The wrapper exposes no prepare-read family, and flush must stay
+        // silent on a full socket, so this half of the pump uses the raw
+        // bindings directly.
+        var display = (wl_display*)_display.RawHandle;
+        LibWaylandClient.wl_display_flush(display);
+        if (LibWaylandClient.wl_display_prepare_read(display) == 0)
         {
-            if (LinuxInterop.PollReadable(_display.GetFd()))
+            if (LinuxInterop.PollReadable(_display.Fd))
             {
-                _display.ReadEvents();
+                LibWaylandClient.wl_display_read_events(display);
             }
             else
             {
-                _display.CancelRead();
+                LibWaylandClient.wl_display_cancel_read(display);
             }
 
             _display.DispatchPending();
@@ -256,7 +245,7 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
             _pendingHeight = 0;
         }
 
-        if (_eglWindow == IntPtr.Zero ||
+        if (_eglWindow is null ||
             (_logicalWidth == _appliedWidth && _logicalHeight == _appliedHeight && _scale == _appliedScale))
         {
             return;
@@ -266,11 +255,10 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         _appliedHeight = _logicalHeight;
         _appliedScale = _scale;
         _surface?.SetBufferScale(_appliedScale);
-        LinuxInterop.wl_egl_window_resize(
-            _eglWindow, _appliedWidth * _appliedScale, _appliedHeight * _appliedScale, 0, 0);
+        _eglWindow.Resize(_appliedWidth * _appliedScale, _appliedHeight * _appliedScale);
     }
 
-    public void Dispose()
+    public unsafe void Dispose()
     {
         _pointer?.Dispose();
         _pointer = null;
@@ -280,12 +268,8 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         _xdgSurface = null;
         _layerSurface?.Dispose();
         _layerSurface = null;
-        if (_eglWindow != IntPtr.Zero)
-        {
-            LinuxInterop.wl_egl_window_destroy(_eglWindow);
-            _eglWindow = IntPtr.Zero;
-        }
-
+        _eglWindow?.Dispose();
+        _eglWindow = null;
         _surface?.Dispose();
         _surface = null;
         _seat?.Dispose();
@@ -304,70 +288,73 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         _compositor?.Dispose();
         _compositor = null;
         _registry?.Dispose();
-        _display.Flush();
+        // Raw flush: WlDisplay.Flush throws on a dead connection, which must
+        // not escape from Dispose.
+        LibWaylandClient.wl_display_flush((wl_display*)_display.RawHandle);
         _display.Dispose();
     }
 
-    private void OnGlobal(WlRegistry registry, uint name, string iface, uint version)
+    private void OnGlobal(object? sender, WlRegistry.GlobalEventArgs e)
     {
-        switch (iface)
+        switch (e.Interface)
         {
             case "wl_compositor":
-                _compositor = WlCompositor.Bind(registry, name, Math.Min(version, 4u));
+                _compositor = _registry.Bind<WlCompositor>(e.Name, Math.Min(e.Version, 4u));
                 break;
 
             case "xdg_wm_base":
-                _wmBase = XdgWmBase.Bind(registry, name, Math.Min(version, 2u), new XdgWmBase.Listener.Relay
-                {
-                    OnPing = (sender, serial) => sender.Pong(serial),
-                });
+            {
+                var wmBase = _registry.Bind<XdgWmBase>(e.Name, Math.Min(e.Version, 2u));
+                wmBase.Ping += (_, args) => wmBase.Pong(args.Serial);
+                _wmBase = wmBase;
                 break;
+            }
 
             case "zwlr_layer_shell_v1":
-                _layerShell = ZwlrLayerShellV1.Bind(registry, name, Math.Min(version, 4u));
+                _layerShell = _registry.Bind<ZwlrLayerShellV1>(e.Name, Math.Min(e.Version, 4u));
                 break;
 
             case "wl_seat" when _mode == DisplayMode.Window && _seat is null:
-                _seat = WlSeat.Bind(registry, name, Math.Min(version, 5u), new WlSeat.Listener.Relay
-                {
-                    OnCapabilities = OnSeatCapabilities,
-                });
+            {
+                var seat = _registry.Bind<WlSeat>(e.Name, Math.Min(e.Version, 5u));
+                seat.Capabilities += (_, args) => OnSeatCapabilities(seat, args.Capabilities);
+                _seat = seat;
                 break;
+            }
 
             case "wl_output":
             {
                 var entry = new OutputEntry { Index = _outputs.Count };
-                entry.Output = WlOutput.Bind(registry, name, Math.Min(version, 4u), new WlOutput.Listener.Relay
+                var output = _registry.Bind<WlOutput>(e.Name, Math.Min(e.Version, 4u));
+                output.ModeEvent += (_, args) =>
                 {
-                    OnMode = (_, flags, width, height, refresh) =>
+                    if ((args.Flags & WlOutput.Mode.Current) != 0)
                     {
-                        if ((flags & WlOutput.ModeEnum.Current) != 0)
+                        entry.Width = args.Width;
+                        entry.Height = args.Height;
+                        if (args.Refresh > 0)
                         {
-                            entry.Width = width;
-                            entry.Height = height;
-                            if (refresh > 0)
-                            {
-                                entry.RefreshRate = refresh / 1000.0;
-                                if (entry == _selectedOutput)
-                                {
-                                    _refreshRate = entry.RefreshRate;
-                                }
-                            }
-                        }
-                    },
-                    OnScale = (_, factor) =>
-                    {
-                        if (factor > 0)
-                        {
-                            entry.Scale = factor;
+                            entry.RefreshRate = args.Refresh / 1000.0;
                             if (entry == _selectedOutput)
                             {
-                                _scale = factor;
+                                _refreshRate = entry.RefreshRate;
                             }
                         }
-                    },
-                    OnName = (_, outputName) => entry.Name = outputName,
-                });
+                    }
+                };
+                output.Scale += (_, args) =>
+                {
+                    if (args.Factor > 0)
+                    {
+                        entry.Scale = args.Factor;
+                        if (entry == _selectedOutput)
+                        {
+                            _scale = args.Factor;
+                        }
+                    }
+                };
+                output.Name += (_, args) => entry.Name = args.Name;
+                entry.Output = output;
                 _outputs.Add(entry);
                 break;
             }
@@ -384,27 +371,26 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         _logicalWidth = DefaultWindowSize;
         _logicalHeight = DefaultWindowSize;
         _surface = _compositor!.CreateSurface();
-        _xdgSurface = _wmBase.GetXdgSurface(_surface, new XdgSurface.Listener.Relay
+        var xdgSurface = _wmBase.GetXdgSurface(_surface);
+        xdgSurface.Configure += (_, e) =>
         {
-            OnConfigure = (sender, serial) =>
-            {
-                sender.AckConfigure(serial);
-                _configured = true;
-            },
-        });
-        _toplevel = _xdgSurface.GetToplevel(new XdgToplevel.Listener.Relay
+            xdgSurface.AckConfigure(e.Serial);
+            _configured = true;
+        };
+        _xdgSurface = xdgSurface;
+
+        var toplevel = xdgSurface.GetToplevel();
+        toplevel.Configure += (_, e) =>
         {
-            OnConfigure = (_, width, height, states) =>
+            _maximized = HasState(e.States, XdgToplevel.State.Maximized);
+            if (e.Width > 0 && e.Height > 0)
             {
-                _maximized = HasState(states, XdgToplevel.StateEnum.Maximized);
-                if (width > 0 && height > 0)
-                {
-                    _pendingWidth = width;
-                    _pendingHeight = height;
-                }
-            },
-            OnClose = _ => Unmap(),
-        });
+                _pendingWidth = e.Width;
+                _pendingHeight = e.Height;
+            }
+        };
+        toplevel.Close += (_, _) => Unmap();
+        _toplevel = toplevel;
         _toplevel.SetTitle("FreqScene");
         _toplevel.SetAppId("FreqScene");
         _toplevel.SetMinSize(320, 240);
@@ -425,36 +411,35 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
 
         _surface = _compositor!.CreateSurface();
         var layer = mode == DisplayMode.Overlay
-            ? ZwlrLayerShellV1.LayerEnum.Top
+            ? ZwlrLayerShellV1.Layer.Top
             : WallpaperLayer();
-        _layerSurface = _layerShell.GetLayerSurface(
-            _surface, _selectedOutput?.Output, layer, "freqscene", new ZwlrLayerSurfaceV1.Listener.Relay
+        var layerSurface = _layerShell.GetLayerSurface(
+            _surface, _selectedOutput?.Output, layer, "freqscene");
+        layerSurface.Configure += (_, e) =>
+        {
+            layerSurface.AckConfigure(e.Serial);
+            if (e.Width > 0 && e.Height > 0)
             {
-                OnConfigure = (sender, serial, width, height) =>
+                _pendingWidth = (int)e.Width;
+                _pendingHeight = (int)e.Height;
+                if (!_configured)
                 {
-                    sender.AckConfigure(serial);
-                    if (width > 0 && height > 0)
-                    {
-                        _pendingWidth = (int)width;
-                        _pendingHeight = (int)height;
-                        if (!_configured)
-                        {
-                            _logicalWidth = (int)width;
-                            _logicalHeight = (int)height;
-                            _pendingWidth = 0;
-                            _pendingHeight = 0;
-                        }
-                    }
+                    _logicalWidth = (int)e.Width;
+                    _logicalHeight = (int)e.Height;
+                    _pendingWidth = 0;
+                    _pendingHeight = 0;
+                }
+            }
 
-                    _configured = true;
-                },
-                OnClosed = _ => _closedByCompositor = true,
-            });
+            _configured = true;
+        };
+        layerSurface.Closed += (_, _) => _closedByCompositor = true;
+        _layerSurface = layerSurface;
         _layerSurface.SetAnchor(
-            ZwlrLayerSurfaceV1.AnchorEnum.Top | ZwlrLayerSurfaceV1.AnchorEnum.Bottom |
-            ZwlrLayerSurfaceV1.AnchorEnum.Left | ZwlrLayerSurfaceV1.AnchorEnum.Right);
+            ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Bottom |
+            ZwlrLayerSurfaceV1.Anchor.Left | ZwlrLayerSurfaceV1.Anchor.Right);
         _layerSurface.SetExclusiveZone(-1);
-        _layerSurface.SetKeyboardInteractivity(ZwlrLayerSurfaceV1.KeyboardInteractivityEnum.None);
+        _layerSurface.SetKeyboardInteractivity(ZwlrLayerSurfaceV1.KeyboardInteractivity.None);
 
         // An empty input region makes the surface click-through.
         using (var region = _compositor.CreateRegion())
@@ -469,41 +454,40 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
     // desktop window and raises that window whenever it is activated, so a background
     // wallpaper disappears behind it after any click on the desktop. The bottom layer
     // stays above the desktop window and below normal windows permanently.
-    private static ZwlrLayerShellV1.LayerEnum WallpaperLayer() =>
+    private static ZwlrLayerShellV1.Layer WallpaperLayer() =>
         (Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP") ?? string.Empty)
             .Contains("KDE", StringComparison.OrdinalIgnoreCase)
-            ? ZwlrLayerShellV1.LayerEnum.Bottom
-            : ZwlrLayerShellV1.LayerEnum.Background;
+            ? ZwlrLayerShellV1.Layer.Bottom
+            : ZwlrLayerShellV1.Layer.Background;
 
-    private void OnSeatCapabilities(WlSeat seat, WlSeat.CapabilityEnum capabilities)
+    private void OnSeatCapabilities(WlSeat seat, WlSeat.Capability capabilities)
     {
-        if ((capabilities & WlSeat.CapabilityEnum.Pointer) != 0 && _pointer is null)
+        if ((capabilities & WlSeat.Capability.Pointer) != 0 && _pointer is null)
         {
-            _pointer = seat.GetPointer(new WlPointer.Listener.Relay
+            var pointer = seat.GetPointer();
+            pointer.Enter += (_, e) =>
             {
-                OnEnter = (_, _, _, x, y) =>
-                {
-                    _pointerX = (double)x;
-                    _pointerY = (double)y;
-                },
-                OnMotion = (_, _, x, y) =>
-                {
-                    _pointerX = (double)x;
-                    _pointerY = (double)y;
-                },
-                OnButton = OnPointerButton,
-            });
+                _pointerX = e.SurfaceX;
+                _pointerY = e.SurfaceY;
+            };
+            pointer.Motion += (_, e) =>
+            {
+                _pointerX = e.SurfaceX;
+                _pointerY = e.SurfaceY;
+            };
+            pointer.Button += (_, e) => OnPointerButton(e.Serial, e.Time, e.Button, e.State);
+            _pointer = pointer;
         }
-        else if ((capabilities & WlSeat.CapabilityEnum.Pointer) == 0 && _pointer is not null)
+        else if ((capabilities & WlSeat.Capability.Pointer) == 0 && _pointer is not null)
         {
             _pointer.Dispose();
             _pointer = null;
         }
     }
 
-    private void OnPointerButton(WlPointer pointer, uint serial, uint time, uint button, WlPointer.ButtonStateEnum state)
+    private void OnPointerButton(uint serial, uint time, uint button, WlPointer.ButtonState state)
     {
-        if (button != BtnLeft || state != WlPointer.ButtonStateEnum.Pressed ||
+        if (button != BtnLeft || state != WlPointer.ButtonState.Pressed ||
             _toplevel is null || _seat is null)
         {
             return;
@@ -530,8 +514,8 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
             return;
         }
 
-        var edge = _maximized ? XdgToplevel.ResizeEdgeEnum.None : HitTestResizeEdge();
-        if (edge != XdgToplevel.ResizeEdgeEnum.None)
+        var edge = _maximized ? XdgToplevel.ResizeEdge.None : HitTestResizeEdge();
+        if (edge != XdgToplevel.ResizeEdge.None)
         {
             _toplevel.Resize(_seat, serial, edge);
         }
@@ -541,31 +525,31 @@ public sealed class LinuxWaylandSession : ILinuxGlSession
         }
     }
 
-    private XdgToplevel.ResizeEdgeEnum HitTestResizeEdge()
+    private XdgToplevel.ResizeEdge HitTestResizeEdge()
     {
-        var edge = XdgToplevel.ResizeEdgeEnum.None;
+        var edge = XdgToplevel.ResizeEdge.None;
         if (_pointerY < ResizeMargin)
         {
-            edge |= XdgToplevel.ResizeEdgeEnum.Top;
+            edge |= XdgToplevel.ResizeEdge.Top;
         }
         else if (_pointerY >= _logicalHeight - ResizeMargin)
         {
-            edge |= XdgToplevel.ResizeEdgeEnum.Bottom;
+            edge |= XdgToplevel.ResizeEdge.Bottom;
         }
 
         if (_pointerX < ResizeMargin)
         {
-            edge |= XdgToplevel.ResizeEdgeEnum.Left;
+            edge |= XdgToplevel.ResizeEdge.Left;
         }
         else if (_pointerX >= _logicalWidth - ResizeMargin)
         {
-            edge |= XdgToplevel.ResizeEdgeEnum.Right;
+            edge |= XdgToplevel.ResizeEdge.Right;
         }
 
         return edge;
     }
 
-    private static bool HasState(ReadOnlySpan<byte> states, XdgToplevel.StateEnum state)
+    private static bool HasState(ReadOnlySpan<byte> states, XdgToplevel.State state)
     {
         foreach (var value in MemoryMarshal.Cast<byte, uint>(states))
         {
