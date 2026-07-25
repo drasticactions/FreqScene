@@ -7,6 +7,7 @@
     <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="drm-dotnet" />
     <PackageReference Include="NWayland" />
     <PackageReference Include="NWayland.Protocols.Wlr" />
     <PackageReference Include="seatd-dotnet" />

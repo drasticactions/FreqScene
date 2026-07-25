@@ -1,29 +1,31 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
+using Drm;
+using Drm.Native;
 
 namespace FreqScene;
 
-public sealed unsafe class LinuxKmsSession : ILinuxGlSession
+public sealed class LinuxKmsSession : ILinuxGlSession
 {
     private const int HotplugPollSeconds = 2;
-
-    private static bool s_flipCompleted;
 
     private readonly SeatSession _seat;
     private readonly string _devicePath;
     private readonly uint _connectorId;
     private readonly string _connectorName;
     private readonly uint _crtcId;
-    private DrmInterop.DrmModeModeInfo _mode;
+    private readonly DrmModeInfo _mode;
+    private readonly DrmDevice _device = null!;
 
     private int _fd = -1;
     private IntPtr _gbmDevice;
     private IntPtr _gbmSurface;
     private IntPtr _previousBo;
-    private readonly Dictionary<IntPtr, uint> _framebuffersByBo = [];
+    private readonly Dictionary<IntPtr, DrmFramebuffer> _framebuffersByBo = [];
 
     private bool _needsModeset = true;
     private bool _connected = true;
+    private bool _flipCompleted;
+    private DrmEventHandlers? _eventHandlers;
     private long _nextHotplugPoll;
 
     public LinuxKmsSession(string? connectorName, string? modeSpec)
@@ -33,6 +35,7 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
         {
             (_devicePath, _fd, _connectorId, _connectorName, _crtcId, _mode) =
                 PickOutput(_seat, connectorName, modeSpec);
+            _device = DrmDevice.FromFd(_fd);
 
             _gbmDevice = GbmInterop.gbm_create_device(_fd);
             if (_gbmDevice == IntPtr.Zero)
@@ -41,17 +44,17 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
             }
 
             _gbmSurface = GbmInterop.gbm_surface_create(
-                _gbmDevice, _mode.HDisplay, _mode.VDisplay,
+                _gbmDevice, _mode.HorizontalDisplay, _mode.VerticalDisplay,
                 GbmInterop.GbmFormatArgb8888,
                 GbmInterop.GbmBoUseScanout | GbmInterop.GbmBoUseRendering);
             if (_gbmSurface == IntPtr.Zero)
             {
                 throw new InvalidOperationException(
-                    $"gbm_surface_create failed for {_mode.HDisplay}x{_mode.VDisplay} on {_connectorName}.");
+                    $"gbm_surface_create failed for {_mode.HorizontalDisplay}x{_mode.VerticalDisplay} on {_connectorName}.");
             }
 
             Trace.TraceInformation(
-                $"[kms] {_connectorName} on {_devicePath}: {_mode.HDisplay}x{_mode.VDisplay}@{_mode.VRefresh}");
+                $"[kms] {_connectorName} on {_devicePath}: {_mode.HorizontalDisplay}x{_mode.VerticalDisplay}@{_mode.VerticalRefresh}");
         }
         catch
         {
@@ -68,15 +71,15 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
 
     public int? RequiredNativeVisualId => unchecked((int)GbmInterop.GbmFormatArgb8888);
 
-    public int PixelWidth => _mode.HDisplay;
+    public int PixelWidth => _mode.HorizontalDisplay;
 
-    public int PixelHeight => _mode.VDisplay;
+    public int PixelHeight => _mode.VerticalDisplay;
 
     public bool Visible => _seat.Enabled && _connected;
 
     public bool Closed => false;
 
-    public double RefreshRate => _mode.VRefresh > 0 ? _mode.VRefresh : 60;
+    public double RefreshRate => _mode.VerticalRefresh > 0 ? _mode.VerticalRefresh : 60;
 
     public string ConnectorName => _connectorName;
 
@@ -104,14 +107,18 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
         }
 
         _nextHotplugPoll = now + Stopwatch.Frequency * HotplugPollSeconds;
-        var connectorPtr = DrmInterop.drmModeGetConnectorCurrent(_fd, _connectorId);
-        if (connectorPtr == IntPtr.Zero)
+        bool connected;
+        try
+        {
+            // forceProbe would block on a full re-detect; the cached state is
+            // enough to notice hotplug because the kernel probes on its own.
+            connected = _device.GetConnector(_connectorId, forceProbe: false).Status == DrmConnectionStatus.Connected;
+        }
+        catch (DrmException)
         {
             return;
         }
 
-        var connected = ((DrmInterop.DrmModeConnector*)connectorPtr)->Connection == DrmInterop.DrmModeConnected;
-        DrmInterop.drmModeFreeConnector(connectorPtr);
         if (connected == _connected)
         {
             return;
@@ -145,30 +152,37 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
         var presented = false;
         try
         {
-            var framebuffer = GetFramebuffer(bo);
-            if (framebuffer == 0)
+            if (GetFramebuffer(bo) is not { } framebuffer)
             {
                 return;
             }
 
             if (_needsModeset)
             {
-                var connectorId = _connectorId;
-                if (DrmInterop.drmModeSetCrtc(_fd, _crtcId, framebuffer, 0, 0, ref connectorId, 1, ref _mode) == 0)
+                try
                 {
+                    _device.SetCrtc(_crtcId, framebuffer.Id, 0, 0, [_connectorId], _mode);
                     _needsModeset = false;
                     presented = true;
                 }
-            }
-            else if (DrmInterop.drmModePageFlip(
-                _fd, _crtcId, framebuffer, DrmInterop.DrmModePageFlipEvent, IntPtr.Zero) == 0)
-            {
-                WaitForPageFlip();
-                presented = true;
+                catch (DrmException)
+                {
+                    // Not seat-active yet (or another master holds the CRTC);
+                    // retry on a later frame.
+                }
             }
             else
             {
-                _needsModeset = true;
+                try
+                {
+                    _device.PageFlip(_crtcId, framebuffer.Id);
+                    WaitForPageFlip();
+                    presented = true;
+                }
+                catch (DrmException)
+                {
+                    _needsModeset = true;
+                }
             }
         }
         finally
@@ -193,7 +207,7 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
     {
         foreach (var framebuffer in _framebuffersByBo.Values)
         {
-            DrmInterop.drmModeRmFB(_fd, framebuffer);
+            framebuffer.Dispose();
         }
 
         _framebuffersByBo.Clear();
@@ -215,6 +229,8 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
             GbmInterop.gbm_device_destroy(_gbmDevice);
             _gbmDevice = IntPtr.Zero;
         }
+
+        _device?.Dispose();
 
         if (_fd >= 0)
         {
@@ -238,24 +254,22 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
 
             try
             {
-                ForEachConnector(fd, (in DrmInterop.DrmModeConnector connector) =>
+                using var device = DrmDevice.FromFd(fd);
+                foreach (var connector in EnumerateConnectors(device))
                 {
-                    var modes = new List<string>(connector.CountModes);
-                    var modeInfos = (DrmInterop.DrmModeModeInfo*)connector.Modes;
-                    for (var i = 0; i < connector.CountModes; i++)
+                    var modes = new List<string>(connector.Modes.Count);
+                    foreach (var mode in connector.Modes)
                     {
-                        var mode = modeInfos[i];
-                        var preferred = (mode.Type & DrmInterop.DrmModeTypePreferred) != 0 ? "*" : "";
-                        modes.Add($"{mode.HDisplay}x{mode.VDisplay}@{mode.VRefresh}{preferred}");
+                        var preferred = mode.IsPreferred ? "*" : "";
+                        modes.Add($"{mode.HorizontalDisplay}x{mode.VerticalDisplay}@{mode.VerticalRefresh}{preferred}");
                     }
 
                     outputs.Add(new KmsOutputInfo(
-                        DrmInterop.ConnectorName(connector),
+                        connector.Name,
                         devicePath,
-                        connector.Connection == DrmInterop.DrmModeConnected,
+                        connector.Status == DrmConnectionStatus.Connected,
                         modes));
-                    return true;
-                });
+                }
             }
             finally
             {
@@ -266,7 +280,7 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
         return outputs;
     }
 
-    private static (string DevicePath, int Fd, uint ConnectorId, string Name, uint CrtcId, DrmInterop.DrmModeModeInfo Mode)
+    private static (string DevicePath, int Fd, uint ConnectorId, string Name, uint CrtcId, DrmModeInfo Mode)
         PickOutput(SeatSession seat, string? connectorName, string? modeSpec)
     {
         var seen = new List<string>();
@@ -278,45 +292,29 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
                 continue;
             }
 
-            uint pickedConnector = 0;
-            var pickedName = string.Empty;
-            uint pickedCrtc = 0;
-            DrmInterop.DrmModeModeInfo pickedMode = default;
-            var found = false;
-
-            ForEachConnector(fd, (in DrmInterop.DrmModeConnector connector) =>
+            using var device = DrmDevice.FromFd(fd);
+            foreach (var connector in EnumerateConnectors(device))
             {
-                var name = DrmInterop.ConnectorName(connector);
-                var connected = connector.Connection == DrmInterop.DrmModeConnected;
-                seen.Add(connected ? $"{name} (connected)" : name);
+                var connected = connector.Status == DrmConnectionStatus.Connected;
+                seen.Add(connected ? $"{connector.Name} (connected)" : connector.Name);
 
-                if (connector.CountModes == 0 || !connected)
+                if (connector.Modes.Count == 0 || !connected)
                 {
-                    return true;
+                    continue;
                 }
 
                 if (connectorName is not null &&
-                    !string.Equals(name, connectorName, StringComparison.OrdinalIgnoreCase))
+                    !string.Equals(connector.Name, connectorName, StringComparison.OrdinalIgnoreCase))
                 {
-                    return true;
+                    continue;
                 }
 
-                if (FindCrtc(fd, connector) is not { } crtc)
+                if (FindCrtc(device, connector) is not { } crtc)
                 {
-                    return true;
+                    continue;
                 }
 
-                pickedConnector = connector.ConnectorId;
-                pickedName = name;
-                pickedCrtc = crtc;
-                pickedMode = PickMode(connector, modeSpec);
-                found = true;
-                return false;
-            });
-
-            if (found)
-            {
-                return (devicePath, fd, pickedConnector, pickedName, pickedCrtc, pickedMode);
+                return (devicePath, fd, connector.ConnectorId, connector.Name, crtc, PickMode(connector, modeSpec));
             }
 
             seat.CloseDevice(fd);
@@ -328,16 +326,14 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
             : $"Output '{connectorName}' is not a connected display (connectors: {available}).");
     }
 
-    private static DrmInterop.DrmModeModeInfo PickMode(in DrmInterop.DrmModeConnector connector, string? modeSpec)
+    private static DrmModeInfo PickMode(DrmConnector connector, string? modeSpec)
     {
-        var modes = (DrmInterop.DrmModeModeInfo*)connector.Modes;
         if (modeSpec is not null && TryParseModeSpec(modeSpec, out var width, out var height, out var refresh))
         {
-            for (var i = 0; i < connector.CountModes; i++)
+            foreach (var mode in connector.Modes)
             {
-                var mode = modes[i];
-                if (mode.HDisplay == width && mode.VDisplay == height &&
-                    (refresh == 0 || mode.VRefresh == refresh))
+                if (mode.HorizontalDisplay == width && mode.VerticalDisplay == height &&
+                    (refresh == 0 || mode.VerticalRefresh == refresh))
                 {
                     return mode;
                 }
@@ -345,18 +341,18 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
 
             var wanted = refresh > 0 ? $"{width}x{height}@{refresh}" : $"{width}x{height}";
             throw new InvalidOperationException(
-                $"Mode {wanted} is not offered by {DrmInterop.ConnectorName(connector)}; use --list-outputs to see modes.");
+                $"Mode {wanted} is not offered by {connector.Name}; use --list-outputs to see modes.");
         }
 
-        for (var i = 0; i < connector.CountModes; i++)
+        foreach (var mode in connector.Modes)
         {
-            if ((modes[i].Type & DrmInterop.DrmModeTypePreferred) != 0)
+            if (mode.IsPreferred)
             {
-                return modes[i];
+                return mode;
             }
         }
 
-        return modes[0];
+        return connector.Modes[0];
     }
 
     private static bool TryParseModeSpec(string spec, out ushort width, out ushort height, out uint refresh)
@@ -372,98 +368,83 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
             (atSplit.Length == 1 || uint.TryParse(atSplit[1], out refresh));
     }
 
-    private static uint? FindCrtc(int fd, in DrmInterop.DrmModeConnector connector)
+    private static uint? FindCrtc(DrmDevice device, DrmConnector connector)
     {
-        if (connector.EncoderId != 0)
+        if (connector.CurrentEncoderId != 0)
         {
-            var currentPtr = DrmInterop.drmModeGetEncoder(fd, connector.EncoderId);
-            if (currentPtr != IntPtr.Zero)
+            try
             {
-                var crtcId = ((DrmInterop.DrmModeEncoder*)currentPtr)->CrtcId;
-                DrmInterop.drmModeFreeEncoder(currentPtr);
+                var crtcId = device.GetEncoder(connector.CurrentEncoderId).CrtcId;
                 if (crtcId != 0)
                 {
                     return crtcId;
                 }
             }
+            catch (DrmException)
+            {
+            }
         }
 
-        var resourcesPtr = DrmInterop.drmModeGetResources(fd);
-        if (resourcesPtr == IntPtr.Zero)
-        {
-            return null;
-        }
-
+        IReadOnlyList<uint> crtcs;
         try
         {
-            var resources = (DrmInterop.DrmModeRes*)resourcesPtr;
-            var crtcs = (uint*)resources->Crtcs;
-            var encoderIds = (uint*)connector.Encoders;
-            for (var e = 0; e < connector.CountEncoders; e++)
-            {
-                var encoderPtr = DrmInterop.drmModeGetEncoder(fd, encoderIds[e]);
-                if (encoderPtr == IntPtr.Zero)
-                {
-                    continue;
-                }
-
-                var possible = ((DrmInterop.DrmModeEncoder*)encoderPtr)->PossibleCrtcs;
-                DrmInterop.drmModeFreeEncoder(encoderPtr);
-                for (var c = 0; c < resources->CountCrtcs; c++)
-                {
-                    if ((possible & (1u << c)) != 0)
-                    {
-                        return crtcs[c];
-                    }
-                }
-            }
-
+            crtcs = device.GetResources().CrtcIds;
+        }
+        catch (DrmException)
+        {
             return null;
         }
-        finally
+
+        foreach (var encoderId in connector.EncoderIds)
         {
-            DrmInterop.drmModeFreeResources(resourcesPtr);
+            uint possibleCrtcs;
+            try
+            {
+                possibleCrtcs = device.GetEncoder(encoderId).PossibleCrtcs;
+            }
+            catch (DrmException)
+            {
+                continue;
+            }
+
+            for (var c = 0; c < crtcs.Count; c++)
+            {
+                if ((possibleCrtcs & (1u << c)) != 0)
+                {
+                    return crtcs[c];
+                }
+            }
         }
+
+        return null;
     }
 
-    private delegate bool ConnectorVisitor(in DrmInterop.DrmModeConnector connector);
-
-    private static void ForEachConnector(int fd, ConnectorVisitor visit)
+    private static IEnumerable<DrmConnector> EnumerateConnectors(DrmDevice device)
     {
-        var resourcesPtr = DrmInterop.drmModeGetResources(fd);
-        if (resourcesPtr == IntPtr.Zero)
-        {
-            return;
-        }
-
+        IReadOnlyList<uint> connectorIds;
         try
         {
-            var resources = (DrmInterop.DrmModeRes*)resourcesPtr;
-            var connectorIds = (uint*)resources->Connectors;
-            for (var i = 0; i < resources->CountConnectors; i++)
-            {
-                var connectorPtr = DrmInterop.drmModeGetConnector(fd, connectorIds[i]);
-                if (connectorPtr == IntPtr.Zero)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    if (!visit(in *(DrmInterop.DrmModeConnector*)connectorPtr))
-                    {
-                        return;
-                    }
-                }
-                finally
-                {
-                    DrmInterop.drmModeFreeConnector(connectorPtr);
-                }
-            }
+            connectorIds = device.GetResources().ConnectorIds;
         }
-        finally
+        catch (DrmException)
         {
-            DrmInterop.drmModeFreeResources(resourcesPtr);
+            // Render-only nodes have no modesetting resources; skip them.
+            yield break;
+        }
+
+        foreach (var connectorId in connectorIds)
+        {
+            DrmConnector connector;
+            try
+            {
+                connector = device.GetConnector(connectorId);
+            }
+            catch (DrmException)
+            {
+                continue;
+            }
+
+            yield return connector;
         }
     }
 
@@ -477,7 +458,7 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
         return Directory.GetFiles("/dev/dri", "card*").Order(StringComparer.Ordinal);
     }
 
-    private uint GetFramebuffer(IntPtr bo)
+    private DrmFramebuffer? GetFramebuffer(IntPtr bo)
     {
         if (_framebuffersByBo.TryGetValue(bo, out var existing))
         {
@@ -486,49 +467,47 @@ public sealed unsafe class LinuxKmsSession : ILinuxGlSession
 
         var handle = (uint)GbmInterop.gbm_bo_get_handle(bo);
         var stride = GbmInterop.gbm_bo_get_stride(bo);
-        var handles = stackalloc uint[4] { handle, 0, 0, 0 };
-        var pitches = stackalloc uint[4] { stride, 0, 0, 0 };
-        var offsets = stackalloc uint[4];
-        if (DrmInterop.drmModeAddFB2(
-                _fd, _mode.HDisplay, _mode.VDisplay, DrmInterop.DrmFormatArgb8888,
-                handles, pitches, offsets, out var framebuffer, 0) != 0)
+        try
         {
-            Trace.TraceError("[kms] drmModeAddFB2 failed; the frame cannot be presented.");
-            return 0;
+            var framebuffer = _device.AddFramebuffer(
+                _mode.HorizontalDisplay, _mode.VerticalDisplay, Libdrm.DRM_FORMAT_ARGB8888,
+                [handle], [stride], [0u]);
+            _framebuffersByBo[bo] = framebuffer;
+            return framebuffer;
         }
-
-        _framebuffersByBo[bo] = framebuffer;
-        return framebuffer;
+        catch (DrmException ex)
+        {
+            Trace.TraceError($"[kms] {ex.Message}; the frame cannot be presented.");
+            return null;
+        }
     }
 
     private void WaitForPageFlip()
     {
-        s_flipCompleted = false;
-        var context = new DrmInterop.DrmEventContext
+        _flipCompleted = false;
+        _eventHandlers ??= new DrmEventHandlers
         {
-            Version = 2,
-            VblankHandler = IntPtr.Zero,
-            PageFlipHandler = (IntPtr)(delegate* unmanaged<int, uint, uint, uint, IntPtr, void>)&OnPageFlip,
+            PageFlip = (_, _, _, _, _) => _flipCompleted = true,
         };
 
         var deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency;
-        while (!s_flipCompleted && Stopwatch.GetTimestamp() < deadline)
+        while (!_flipCompleted && Stopwatch.GetTimestamp() < deadline)
         {
             if (!LinuxInterop.PollReadable(_fd, 100))
             {
                 continue;
             }
 
-            if (DrmInterop.drmHandleEvent(_fd, ref context) != 0)
+            try
+            {
+                _device.DispatchEvents(_eventHandlers);
+            }
+            catch (DrmException)
             {
                 break;
             }
         }
     }
-
-    [UnmanagedCallersOnly]
-    private static void OnPageFlip(int fd, uint sequence, uint tvSec, uint tvUsec, IntPtr userData) =>
-        s_flipCompleted = true;
 }
 
 public sealed record KmsOutputInfo(string Name, string DevicePath, bool Connected, IReadOnlyList<string> Modes);

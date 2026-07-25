@@ -143,7 +143,7 @@ internal sealed class SeatSession : IDisposable
         var directFd = SeatInterop.OpenReadWrite(path);
         if (directFd >= 0)
         {
-            DrmInterop.drmSetMaster(directFd);
+            Drm.Native.Libdrm.drmSetMaster(directFd);
         }
 
         return directFd;
