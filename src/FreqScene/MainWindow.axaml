@@ -4,6 +4,7 @@
         x:Class="FreqScene.MainWindow"
         Width="640" Height="640"
         WindowDecorations="None"
+        Icon="/Assets/FreqScene.png"
         Title="FreqScene">
     <projectm:RenderScaleHost x:Name="ScaleHost">
         <projectm:ProjectMControl x:Name="Visualizer" />

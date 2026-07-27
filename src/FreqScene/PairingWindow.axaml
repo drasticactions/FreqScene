@@ -5,6 +5,7 @@
         CanResize="False"
         Topmost="True"
         WindowStartupLocation="CenterScreen"
+        Icon="/Assets/FreqScene.png"
         Title="FreqScene — Pair a Device">
     <StackPanel Margin="16" Spacing="8">
         <TextBlock Text="Enter this PIN on the device:" HorizontalAlignment="Center" />

@@ -4,6 +4,7 @@
         Width="360" SizeToContent="Height"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
+        Icon="/Assets/FreqScene.png"
         Title="FreqScene — Connect to Host">
     <StackPanel Margin="16" Spacing="8">
         <TextBlock Text="Host" />

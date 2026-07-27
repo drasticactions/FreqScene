@@ -5,6 +5,7 @@
         CanResize="False"
         Topmost="True"
         WindowStartupLocation="CenterScreen"
+        Icon="/Assets/FreqScene.png"
         Title="FreqScene — Pairing Required">
     <StackPanel Margin="16" Spacing="8">
         <TextBlock x:Name="PromptText" TextWrapping="Wrap" />

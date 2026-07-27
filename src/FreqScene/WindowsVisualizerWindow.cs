@@ -84,6 +84,18 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             return;
         }
 
+        // Pull the app icon embedded in the executable (ApplicationIcon) so the
+        // taskbar and title bar show the FreqScene logo instead of the generic one.
+        var largeIcon = HICON.Null;
+        var smallIcon = HICON.Null;
+        if (Environment.ProcessPath is { } exePath)
+        {
+            fixed (char* path = exePath)
+            {
+                PInvoke.ExtractIconEx(path, 0, &largeIcon, &smallIcon, 1);
+            }
+        }
+
         var wndClass = new WNDCLASSEXW
         {
             cbSize = (uint)sizeof(WNDCLASSEXW),
@@ -91,6 +103,8 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             lpfnWndProc = &WndProc,
             hInstance = PInvoke.GetModuleHandle(default(PCWSTR)),
             hCursor = PInvoke.LoadCursor(default(HINSTANCE), PInvoke.IDC_ARROW),
+            hIcon = largeIcon,
+            hIconSm = smallIcon,
         };
         fixed (char* className = WindowClassName)
         {

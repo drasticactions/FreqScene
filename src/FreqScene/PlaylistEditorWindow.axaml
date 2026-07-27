@@ -4,6 +4,7 @@
         x:Class="FreqScene.PlaylistEditorWindow"
         x:DataType="local:PlaylistEditorViewModel"
         Width="840" Height="560"
+        Icon="/Assets/FreqScene.png"
         Title="FreqScene — Playlist">
     <Panel>
     <TabControl Margin="4">
