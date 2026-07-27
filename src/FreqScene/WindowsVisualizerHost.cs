@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Avalonia.Threading;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ProjectMDotNet;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -56,10 +58,13 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
     private double _cachedRefreshRate = 60;
     private long _refreshRateExpiry;
 
-    public WindowsVisualizerHost(HWND hwnd, bool transparent)
+    private readonly ILogger _logger;
+
+    public WindowsVisualizerHost(HWND hwnd, bool transparent, ILoggerFactory? loggerFactory = null)
     {
         _hwnd = hwnd;
         _transparent = transparent;
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WindowsVisualizerHost>();
     }
 
     public ProjectM? Instance => _instance;
@@ -221,7 +226,7 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError($"WindowsVisualizerHost frame failed: {ex}");
+                    _logger.LogError(ex, "frame failed");
                 }
             }
         }
@@ -460,7 +465,7 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError($"WindowsVisualizerHost GL action failed: {ex}");
+                    _logger.LogError(ex, "GL action failed");
                 }
             }
 

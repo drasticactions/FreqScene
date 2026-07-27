@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 namespace FreqScene;
 
@@ -20,8 +21,10 @@ internal sealed class MacVisualizerWindow : INativeVisualizerWindow
     private IntPtr _window;
     private bool _closed;
 
-    public MacVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey)
+    public MacVisualizerWindow(
+        VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey, ILoggerFactory loggerFactory)
     {
+        var log = loggerFactory.CreateLogger<MacVisualizerWindow>();
         EnsureClasses();
         _coordinator = coordinator;
         _mode = mode;
@@ -69,12 +72,11 @@ internal sealed class MacVisualizerWindow : INativeVisualizerWindow
 
         var transparent = mode == DisplayMode.Overlay ||
             (mode == DisplayMode.Wallpaper && coordinator.WallpaperTransparency);
-        _host = new MacVisualizerHost(_window, view, transparent: transparent)
+        _host = new MacVisualizerHost(_window, view, transparent: transparent, loggerFactory)
         {
             RenderScale = coordinator.RenderScalePercent / 100.0,
         };
-        _host.InitializationFailed += (_, ex) =>
-            System.Diagnostics.Trace.TraceError($"[native] visualizer init failed: {ex}");
+        _host.InitializationFailed += (_, ex) => log.LogError(ex, "visualizer init failed");
         _onRenderScaleChanged = percent => _host.RenderScale = percent / 100.0;
         coordinator.RenderScaleChanged += _onRenderScaleChanged;
         coordinator.AttachControl(_host);

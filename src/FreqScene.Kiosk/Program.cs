@@ -1,6 +1,6 @@
 using System.CommandLine;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 namespace FreqScene.Kiosk;
 
@@ -60,8 +60,14 @@ internal static class Program
         };
         var verboseOption = new Option<bool>("--verbose")
         {
-            Description = "Show verbose diagnostic output.",
+            Description = "Show verbose diagnostic output (same as --log-level debug).",
         };
+        var logLevelOption = new Option<string?>("--log-level")
+        {
+            Description = "Minimum log level: trace, debug, information, warning, error, critical, or none. " +
+                $"The {FreqSceneLogging.EnvironmentVariable} environment variable overrides this.",
+        };
+        logLevelOption.AcceptOnlyFromAmong("trace", "debug", "information", "warning", "error", "critical", "none");
         var presetsArgument = new Argument<string[]>("presets")
         {
             Description = "Preset files or folders to add to the playlist.",
@@ -74,7 +80,7 @@ internal static class Program
             outputOption, modeOption, backendOption, audioOption, configDirOption,
             noRemoteOption, portOption, pairOption, connectOption,
             listOutputsOption, listAudioOption, listServersOption,
-            verboseOption, presetsArgument,
+            verboseOption, logLevelOption, presetsArgument,
         };
 
         root.SetAction(parseResult => Run(new KioskOptions(
@@ -91,6 +97,7 @@ internal static class Program
             parseResult.GetValue(listAudioOption),
             parseResult.GetValue(listServersOption),
             parseResult.GetValue(verboseOption),
+            parseResult.GetValue(logLevelOption),
             parseResult.GetValue(presetsArgument) ?? [])));
 
         return root.Parse(args).Invoke();
@@ -110,6 +117,7 @@ internal static class Program
         bool ListAudio,
         bool ListServers,
         bool Verbose,
+        string? LogLevel,
         string[] Presets);
 
     private static int Run(KioskOptions options)
@@ -119,8 +127,6 @@ internal static class Program
             Console.Error.WriteLine("freqscene-kiosk only runs on Linux.");
             return 1;
         }
-
-        Trace.Listeners.Add(new KioskTraceListener(options.Verbose));
 
         if (options.ListOutputs)
         {
@@ -155,6 +161,15 @@ internal static class Program
             SettingsStore.OverrideDirectory(configDir);
         }
 
+        var minimumLevel = FreqSceneLogging.TryParseLevel(options.LogLevel)
+            ?? (options.Verbose ? LogLevel.Debug : LogLevel.Information);
+        using var loggerFactory = FreqSceneLogging.Create(
+            "freqscene-kiosk",
+            minimumLevel,
+            logDirectory: options.ConfigDir is { } logBase ? Path.Combine(logBase, "logs") : null);
+        var log = loggerFactory.CreateLogger("FreqScene.Kiosk");
+        FreqSceneLogging.AttachProjectMLog(loggerFactory);
+
         var useWayland = options.Backend switch
         {
             "wayland" => true,
@@ -170,7 +185,7 @@ internal static class Program
             settings.RemotePort = port;
         }
 
-        var dispatcher = new MainThreadDispatcher();
+        var dispatcher = new MainThreadDispatcher(log);
         using var shutdown = new CancellationTokenSource();
         var exitCode = 0;
 
@@ -178,21 +193,21 @@ internal static class Program
         coordinator.RenderScalePercent = settings.RenderScalePercent;
         coordinator.FrameRateCap = settings.FrameRateCap;
         coordinator.WallpaperTransparency = false;
-        coordinator.StatusChanged += message => Console.WriteLine($"[preset] {message}");
+        coordinator.StatusChanged += message => log.LogInformation("preset: {Message}", message);
 
         if (options.Connect is not null)
         {
             if (options.Audio is not null)
             {
-                Console.WriteLine("[audio] --audio is ignored while mirroring a remote host");
+                log.LogWarning("--audio is ignored while mirroring a remote host");
             }
 
             if (options.Presets.Length > 0)
             {
-                Console.WriteLine("[preset] preset arguments are ignored while mirroring a remote host");
+                log.LogWarning("preset arguments are ignored while mirroring a remote host");
             }
         }
-        else if (options.Audio is { } audio && !SelectAudio(coordinator, audio))
+        else if (options.Audio is { } audio && !SelectAudio(coordinator, audio, log))
         {
             coordinator.Dispose();
             return 1;
@@ -201,11 +216,11 @@ internal static class Program
         RemoteServerManager? remote = null;
         if (!options.NoRemote && options.Connect is null)
         {
-            remote = new RemoteServerManager(coordinator, settings) { ForceEnabled = true };
-            remote.StatusChanged += message => Console.WriteLine($"[remote] {message}");
+            remote = new RemoteServerManager(coordinator, settings, loggerFactory) { ForceEnabled = true };
+            remote.StatusChanged += message => log.LogInformation("remote: {Message}", message);
             remote.ClientsChanged += () => dispatcher.Post(
-                () => Console.WriteLine($"[remote] {remote.ClientCount} client(s) connected"));
-            remote.Pairing.DevicePaired += device => Console.WriteLine($"[remote] paired: {device.Name}");
+                () => log.LogInformation("remote: {Count} client(s) connected", remote.ClientCount));
+            remote.Pairing.DevicePaired += device => log.LogInformation("remote: paired {Device}", device.Name);
             _ = remote.ApplyAsync();
             if (options.Pair)
             {
@@ -221,8 +236,8 @@ internal static class Program
         Remote.Server.MdnsBrowser? mdns = null;
         if (options.Connect is { } target)
         {
-            client = new RemoteClientManager(coordinator, options.ConfigDir, deviceModel: "Kiosk");
-            client.StatusChanged += message => Console.WriteLine($"[client] {message}");
+            client = new RemoteClientManager(coordinator, options.ConfigDir, deviceModel: "Kiosk", loggerFactory: loggerFactory);
+            client.StatusChanged += message => log.LogInformation("client: {Message}", message);
             Remote.Client.RemoteSessionState? lastState = null;
             var currentClient = client;
             client.StateChanged += () => dispatcher.Post(() =>
@@ -230,7 +245,7 @@ internal static class Program
                 if (currentClient.State is { } state && state != lastState)
                 {
                     lastState = state;
-                    Console.WriteLine($"[client] {DescribeState(currentClient, state)}");
+                    log.LogInformation("client: {State}", DescribeState(currentClient, state));
                 }
             });
             client.PairingRequired += () => dispatcher.Post(() => PromptPairing(currentClient));
@@ -243,14 +258,15 @@ internal static class Program
         var host = new LinuxVisualizerHost(
             useWayland
                 ? () => new LinuxWaylandSession(DisplayMode.Window, options.Output, fullscreen: true)
-                : () => new LinuxKmsSession(options.Output, options.Mode),
+                : () => new LinuxKmsSession(options.Output, options.Mode, loggerFactory),
             transparent: false,
-            dispatcher);
+            dispatcher,
+            loggerFactory);
         host.RenderScale = settings.RenderScalePercent / 100.0;
         coordinator.RenderScaleChanged += percent => host.RenderScale = percent / 100.0;
         host.InitializationFailed += (_, ex) =>
         {
-            Console.Error.WriteLine($"visualizer failed to start: {ex.Message}");
+            log.LogError(ex, "visualizer failed to start");
             exitCode = 1;
             shutdown.Cancel();
         };
@@ -283,7 +299,7 @@ internal static class Program
         if (client is not null && options.Connect is { } connectTarget)
         {
             var connectClient = client;
-            _ = Task.Run(() => ConnectClientAsync(connectClient, mdns, connectTarget, shutdown.Token));
+            _ = Task.Run(() => ConnectClientAsync(connectClient, mdns, connectTarget, log, shutdown.Token));
         }
 
         var keys = new ConsoleKeyReader();
@@ -329,6 +345,7 @@ internal static class Program
         RemoteClientManager client,
         Remote.Server.MdnsBrowser? mdns,
         string target,
+        ILogger log,
         CancellationToken ct)
     {
         try
@@ -342,7 +359,7 @@ internal static class Program
             }
             else
             {
-                Console.WriteLine($"[client] looking for “{target}” on the local network…");
+                log.LogInformation("client: looking for “{Target}” on the local network…", target);
                 Uri? resolved = null;
                 for (var i = 0; i < 20 && resolved is null && !ct.IsCancellationRequested; i++)
                 {
@@ -353,7 +370,7 @@ internal static class Program
                 rediscover = _ => Task.FromResult(mdns!.Resolve(target));
                 if (resolved is null)
                 {
-                    Console.WriteLine($"[client] “{target}” not found via mDNS yet; also trying it as a hostname");
+                    log.LogInformation("client: “{Target}” not found via mDNS yet; also trying it as a hostname", target);
                     address = new Uri($"http://{target}:{Remote.RemoteProtocol.DefaultPort}");
                 }
                 else
@@ -369,7 +386,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[client] connect failed: {ex.Message}");
+            log.LogError(ex, "client: connect failed");
         }
     }
 
@@ -484,7 +501,7 @@ internal static class Program
         Console.WriteLine($"[remote] pairing PIN: {pin} (valid {deadline:0} minutes)");
     }
 
-    private static bool SelectAudio(VisualizerCoordinator coordinator, string requested)
+    private static bool SelectAudio(VisualizerCoordinator coordinator, string requested, ILogger log)
     {
         var name = string.Equals(requested, "synthetic", StringComparison.OrdinalIgnoreCase)
             ? VisualizerCoordinator.SyntheticSourceName
@@ -501,7 +518,7 @@ internal static class Program
             return false;
         }
 
-        Console.WriteLine($"[audio] {name}");
+        log.LogInformation("audio: {Source}", name);
         return true;
     }
 

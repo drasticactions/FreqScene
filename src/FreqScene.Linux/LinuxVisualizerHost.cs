@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Mesa.Egl;
 using Mesa.Native;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ProjectMDotNet;
 
 namespace FreqScene;
@@ -8,6 +10,7 @@ namespace FreqScene;
 public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
 {
     private readonly Func<ILinuxGlSession> _sessionFactory;
+    private readonly ILogger _logger;
     private readonly IUiDispatcher _dispatcher;
     private readonly bool _transparent;
     private readonly PcmBuffer _pcmBuffer = new();
@@ -36,19 +39,26 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
         DisplayMode mode,
         bool wallpaperTransparency,
         string? displayKey,
-        IUiDispatcher? dispatcher = null)
+        IUiDispatcher? dispatcher = null,
+        ILoggerFactory? loggerFactory = null)
         : this(
             () => new LinuxWaylandSession(mode, displayKey),
             transparent: mode == DisplayMode.Overlay || (mode == DisplayMode.Wallpaper && wallpaperTransparency),
-            dispatcher)
+            dispatcher,
+            loggerFactory)
     {
     }
 
-    public LinuxVisualizerHost(Func<ILinuxGlSession> sessionFactory, bool transparent, IUiDispatcher? dispatcher = null)
+    public LinuxVisualizerHost(
+        Func<ILinuxGlSession> sessionFactory,
+        bool transparent,
+        IUiDispatcher? dispatcher = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _sessionFactory = sessionFactory;
         _transparent = transparent;
         _dispatcher = dispatcher ?? InlineUiDispatcher.Instance;
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<LinuxVisualizerHost>();
     }
 
     public ProjectM? Instance => _instance;
@@ -170,7 +180,7 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
         _stopEvent.Set();
         if (_renderThread is { } thread && !thread.Join(TimeSpan.FromSeconds(5)))
         {
-            Trace.TraceWarning("[native] the render thread did not stop in time; abandoning it.");
+            _logger.LogWarning("the render thread did not stop in time; abandoning it.");
         }
 
         _renderThread = null;
@@ -210,7 +220,7 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
                     _session.PumpEvents();
                     if (_session.Closed)
                     {
-                        Trace.TraceWarning("[native] the display session ended; rendering stops.");
+                        _logger.LogWarning("the display session ended; rendering stops.");
                         break;
                     }
 
@@ -222,7 +232,7 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError($"LinuxVisualizerHost frame failed: {ex}");
+                    _logger.LogError(ex, "frame failed");
                 }
             }
         }
@@ -337,7 +347,7 @@ public sealed unsafe class LinuxVisualizerHost : IVisualizerHost, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError($"LinuxVisualizerHost GL action failed: {ex}");
+                    _logger.LogError(ex, "GL action failed");
                 }
             }
 

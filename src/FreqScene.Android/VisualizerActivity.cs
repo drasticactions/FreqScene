@@ -1,10 +1,10 @@
 using Android.Content;
 using Android.Graphics;
 using Android.Provider;
-using Android.Util;
 using Android.Views;
 using Android.Widget;
 using FreqScene.Remote.Client;
+using Microsoft.Extensions.Logging;
 using ProjectMDotNet;
 
 namespace FreqScene.Android;
@@ -18,6 +18,8 @@ namespace FreqScene.Android;
         | global::Android.Content.PM.ConfigChanges.UiMode)]
 public sealed class VisualizerActivity : Activity
 {
+    private static readonly ILogger Log = AppLog.Factory.CreateLogger<VisualizerActivity>();
+
     public const string ExtraAddress = "address";
     public const string ExtraServiceName = "serviceName";
 
@@ -138,14 +140,15 @@ public sealed class VisualizerActivity : Activity
             serviceName is null || resolver is null
                 ? null
                 : ct => resolver.ResolveAsync(serviceName, ct),
-            _pairings.Find(serviceName, address.Host)?.Token);
+            _pairings.Find(serviceName, address.Host)?.Token,
+            loggerFactory: AppLog.Factory);
 
         // PcmBuffer is thread-safe; PCM flows straight in from the hub thread.
         session.PcmReceived += samples => _glView?.AddPcm(samples, AudioChannels.Stereo);
         // LoadPresetData queues onto the GL thread itself; no UI-thread hop needed.
         session.PresetReceived += (content, hardCut) => _glView?.LoadPresetData(content, smoothTransition: !hardCut);
         session.StateChanged += state => RunOnUiThread(() => ApplySessionState(state));
-        session.StatusChanged += message => Log.Info("FreqScene", $"[remote] {message}");
+        session.StatusChanged += message => Log.LogInformation("remote: {Message}", message);
 
         _session = session;
         StartSynthetic();

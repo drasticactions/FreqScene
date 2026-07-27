@@ -1,8 +1,10 @@
+using Microsoft.Extensions.Logging;
+
 namespace FreqScene;
 
 internal static class DisplayTargets
 {
-    public static IReadOnlyList<DisplayInfo> List()
+    public static IReadOnlyList<DisplayInfo> List(ILogger logger)
     {
         try
         {
@@ -23,7 +25,7 @@ internal static class DisplayTargets
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"[native] display enumeration failed: {ex}");
+            logger.LogError(ex, "display enumeration failed");
         }
 
         return [];

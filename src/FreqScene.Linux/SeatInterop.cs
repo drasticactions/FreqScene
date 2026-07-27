@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Seatd;
 
 namespace FreqScene;
@@ -31,25 +33,26 @@ internal sealed class SeatSession : IDisposable
 
     public bool UsesLibseat => _seat is not null;
 
-    public static SeatSession Open()
+    public static SeatSession Open(ILogger? logger = null)
     {
+        logger ??= NullLogger.Instance;
         Seat? seat = null;
         try
         {
-            InstallLogForwarder();
+            InstallLogForwarder(logger);
             seat = Seat.Open();
         }
         catch (DllNotFoundException)
         {
             // No libseat on this box; the direct-open fallback below still works for
             // root or the video group when no other DRM master is around.
-            Emit("libseat is not installed; opening DRM devices directly.");
+            logger.LogInformation("libseat is not installed; opening DRM devices directly.");
         }
         catch (SeatdException ex)
         {
             // libseat is present but no seat provider (seatd/logind) took us; same
             // direct-open fallback applies.
-            Emit($"libseat could not open a seat ({ex.Message}); opening DRM devices directly.");
+            logger.LogInformation("libseat could not open a seat ({Reason}); opening DRM devices directly.", ex.Message);
         }
 
         if (seat is null)
@@ -96,33 +99,30 @@ internal sealed class SeatSession : IDisposable
             seatName = "unknown";
         }
 
-        Emit($"using libseat for session control (seat: {seatName}).");
+        logger.LogInformation("using libseat for session control (seat: {SeatName}).", seatName);
         return new SeatSession(seat);
     }
 
-    private static void InstallLogForwarder()
+    private static void InstallLogForwarder(ILogger logger)
     {
-        // Ask libseat for everything and let trace listeners filter: debug
-        // goes out as verbose Trace.WriteLine, the rest at matching levels.
+        // Ask libseat for everything and let the logger's level filters decide.
         SeatLog.SetHandler((level, message) =>
         {
             switch (level)
             {
                 case SeatLogLevel.Error:
-                    Trace.TraceError($"[kms] libseat: {message}");
+                    logger.LogError("libseat: {Message}", message);
                     break;
                 case SeatLogLevel.Debug:
-                    Trace.WriteLine($"[kms] libseat: {message}");
+                    logger.LogDebug("libseat: {Message}", message);
                     break;
                 default:
-                    Trace.TraceInformation($"[kms] libseat: {message}");
+                    logger.LogInformation("libseat: {Message}", message);
                     break;
             }
         });
         SeatLog.SetLevel(SeatLogLevel.Debug);
     }
-
-    private static void Emit(string message) => Trace.TraceInformation($"[kms] {message}");
 
     public int OpenDevice(string path)
     {

@@ -5,6 +5,8 @@ using Avalonia.Controls;
 using Avalonia.OpenGL;
 using Avalonia.OpenGL.Controls;
 using Avalonia.Threading;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ProjectMDotNet.Avalonia;
 
@@ -47,6 +49,8 @@ public class ProjectMControl : OpenGlControlBase, IVisualizerHost
 
     private readonly PcmBuffer _pcmBuffer = new();
     private readonly ConcurrentQueue<Action> _glActions = new();
+    private ILoggerFactory _loggerFactory = NullLoggerFactory.Instance;
+    private ILogger _logger = NullLogger.Instance;
     private IReadOnlyList<string> _textureSearchPaths = [];
     private ProjectM? _instance;
     private ProjectMPlaylist? _playlist;
@@ -54,6 +58,16 @@ public class ProjectMControl : OpenGlControlBase, IVisualizerHost
     private bool _compositorFailureLogged;
     private (int Width, int Height) _lastWindowSize;
     private long _nextFrameDue;
+
+    public ILoggerFactory LoggerFactory
+    {
+        get => _loggerFactory;
+        set
+        {
+            _loggerFactory = value;
+            _logger = value.CreateLogger<ProjectMControl>();
+        }
+    }
 
     /// <summary>The native visualizer instance; non-null after <see cref="InstanceCreated"/> and until GL teardown.</summary>
     public ProjectM? Instance => _instance;
@@ -250,7 +264,7 @@ public class ProjectMControl : OpenGlControlBase, IVisualizerHost
                     }
                     catch (Exception ex)
                     {
-                        Trace.TraceError($"ProjectMControl GL action failed: {ex}");
+                        _logger.LogError(ex, "GL action failed");
                     }
                 }
 
@@ -267,7 +281,7 @@ public class ProjectMControl : OpenGlControlBase, IVisualizerHost
                         useCompositor = compositor.EnsureResources(gl, size);
                         if (!useCompositor && !_compositorFailureLogged)
                         {
-                            Trace.TraceError("ProjectMControl: transparency framebuffer incomplete; rendering opaque.");
+                            _logger.LogError("transparency framebuffer incomplete; rendering opaque.");
                             _compositorFailureLogged = true;
                         }
                     }
@@ -275,7 +289,7 @@ public class ProjectMControl : OpenGlControlBase, IVisualizerHost
                     {
                         if (!_compositorFailureLogged)
                         {
-                            Trace.TraceError($"ProjectMControl: transparency compositor failed: {ex}");
+                            _logger.LogError(ex, "transparency compositor failed");
                             _compositorFailureLogged = true;
                         }
                     }

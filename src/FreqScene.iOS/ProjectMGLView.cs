@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using CoreAnimation;
 using CoreGraphics;
 using Foundation;
+using Microsoft.Extensions.Logging;
 using ObjCRuntime;
 using OpenGLES;
 using ProjectMDotNet;
@@ -11,6 +12,8 @@ namespace FreqScene.iOS;
 
 public sealed class ProjectMGLView : UIView
 {
+    private static readonly ILogger Log = AppLog.Factory.CreateLogger<ProjectMGLView>();
+
     private const uint GL_FRAMEBUFFER = 0x8D40;
     private const uint GL_RENDERBUFFER = 0x8D41;
     private const uint GL_COLOR_ATTACHMENT0 = 0x8CE0;
@@ -102,7 +105,7 @@ public sealed class ProjectMGLView : UIView
         catch (Exception ex)
         {
             _failed = true;
-            Console.Error.WriteLine($"ProjectMGLView init failed: {ex}");
+            Log.LogError(ex, "visualizer init failed");
             Teardown();
         }
     }

@@ -1,11 +1,14 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FreqScene.Kiosk;
 
-internal sealed class MainThreadDispatcher : IUiDispatcher
+internal sealed class MainThreadDispatcher(ILogger? logger = null) : IUiDispatcher
 {
     private readonly BlockingCollection<Action> _queue = new();
     private readonly int _mainThreadId = Environment.CurrentManagedThreadId;
+    private readonly ILogger _logger = logger ?? NullLogger.Instance;
 
     public bool CheckAccess() => Environment.CurrentManagedThreadId == _mainThreadId;
 
@@ -33,7 +36,7 @@ internal sealed class MainThreadDispatcher : IUiDispatcher
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"error: {ex.Message}");
+                    _logger.LogError(ex, "posted action failed");
                 }
             }
 

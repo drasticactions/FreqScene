@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Avalonia.Threading;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ProjectMDotNet;
 
 namespace FreqScene;
@@ -58,11 +60,14 @@ internal sealed class MacVisualizerHost : IVisualizerHost
     private MacInterop.CgRect _lastFrame;
     private double _lastBackingScale;
 
-    public MacVisualizerHost(IntPtr window, IntPtr view, bool transparent)
+    private readonly ILogger _logger;
+
+    public MacVisualizerHost(IntPtr window, IntPtr view, bool transparent, ILoggerFactory? loggerFactory = null)
     {
         _window = window;
         _view = view;
         _transparent = transparent;
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<MacVisualizerHost>();
     }
 
     public ProjectM? Instance => _instance;
@@ -268,7 +273,7 @@ internal sealed class MacVisualizerHost : IVisualizerHost
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"MacVisualizerHost frame failed: {ex}");
+            _logger.LogError(ex, "frame failed");
         }
 
         ScheduleNextFrame();
@@ -311,7 +316,7 @@ internal sealed class MacVisualizerHost : IVisualizerHost
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError($"MacVisualizerHost GL action failed: {ex}");
+                    _logger.LogError(ex, "GL action failed");
                 }
             }
 

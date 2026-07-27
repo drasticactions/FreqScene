@@ -17,6 +17,7 @@
     <PackageReference Include="Avalonia.Controls.DataGrid" />
     <PackageReference Include="Microsoft.Windows.CsWin32" PrivateAssets="all" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <ProjectReference Include="../FreqScene.Core/FreqScene.Core.csproj" />
     <ProjectReference Include="../FreqScene.Linux/FreqScene.Linux.csproj" />
     <ProjectReference Include="../ProjectMDotNet.Avalonia/ProjectMDotNet.Avalonia.csproj" />

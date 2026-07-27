@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -7,6 +6,8 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FreqScene;
 
@@ -17,14 +18,16 @@ public partial class PlaylistEditorWindow : Window
 
     private readonly VisualizerCoordinator _coordinator;
     private readonly PlaylistEditorViewModel _viewModel;
+    private readonly ILogger _log;
     private CancellationTokenSource? _importCts;
     private PointerPressedEventArgs? _dragTrigger;
     private PresetEntry? _dragCandidate;
     private Point _dragOrigin;
 
-    public PlaylistEditorWindow(VisualizerCoordinator coordinator)
+    public PlaylistEditorWindow(VisualizerCoordinator coordinator, ILogger? logger = null)
     {
         _coordinator = coordinator;
+        _log = logger ?? NullLogger.Instance;
         _viewModel = new PlaylistEditorViewModel(coordinator);
         InitializeComponent();
         DataContext = _viewModel;
@@ -333,7 +336,7 @@ public partial class PlaylistEditorWindow : Window
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"Playlist reorder drag failed: {ex}");
+            _log.LogError(ex, "playlist reorder drag failed");
         }
     }
 

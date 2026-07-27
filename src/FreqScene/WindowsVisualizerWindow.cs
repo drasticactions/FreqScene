@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Microsoft.Extensions.Logging;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Gdi;
@@ -20,8 +21,10 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
     private HWND _hwnd;
     private bool _closed;
 
-    public WindowsVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey)
+    public WindowsVisualizerWindow(
+        VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey, ILoggerFactory loggerFactory)
     {
+        var log = loggerFactory.CreateLogger<WindowsVisualizerWindow>();
         EnsureClass();
         _coordinator = coordinator;
 
@@ -39,12 +42,11 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
                 $"The visualizer window could not be created (error {Marshal.GetLastPInvokeError()}).");
         }
 
-        _host = new WindowsVisualizerHost(_hwnd, transparent: false)
+        _host = new WindowsVisualizerHost(_hwnd, transparent: false, loggerFactory)
         {
             RenderScale = coordinator.RenderScalePercent / 100.0,
         };
-        _host.InitializationFailed += (_, ex) =>
-            System.Diagnostics.Trace.TraceError($"[native] visualizer init failed: {ex}");
+        _host.InitializationFailed += (_, ex) => log.LogError(ex, "visualizer init failed");
         _onRenderScaleChanged = percent => _host.RenderScale = percent / 100.0;
         coordinator.RenderScaleChanged += _onRenderScaleChanged;
         coordinator.AttachControl(_host);

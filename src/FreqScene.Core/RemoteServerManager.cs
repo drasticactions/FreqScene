@@ -1,4 +1,5 @@
 using FreqScene.Remote.Server;
+using Microsoft.Extensions.Logging;
 
 namespace FreqScene;
 
@@ -6,12 +7,14 @@ public sealed class RemoteServerManager : IAsyncDisposable
 {
     private readonly VisualizerCoordinator coordinator;
     private readonly AppSettings settings;
+    private readonly ILoggerFactory? _loggerFactory;
     private RemoteServer? _server;
     private MdnsAdvertiser? _advertiser;
     private Task _applyTask = Task.CompletedTask;
 
-    public RemoteServerManager(VisualizerCoordinator coordinator, AppSettings settings)
+    public RemoteServerManager(VisualizerCoordinator coordinator, AppSettings settings, ILoggerFactory? loggerFactory = null)
     {
+        _loggerFactory = loggerFactory;
         // The server serializes with MessagePackSerializer.DefaultOptions.
         Remote.Client.RemoteClientAotSupport.EnsureInitialized();
         this.coordinator = coordinator;
@@ -66,7 +69,8 @@ public sealed class RemoteServerManager : IAsyncDisposable
         {
             try
             {
-                _server = await RemoteServer.StartAsync(settings.RemotePort, settings.ServerDisplayName, Pairing)
+                _server = await RemoteServer.StartAsync(
+                        settings.RemotePort, settings.ServerDisplayName, Pairing, _loggerFactory)
                     .ConfigureAwait(false);
                 _server.Broadcaster.ClientsChanged += OnClientsChanged;
                 _server.Broadcaster.NotifyPlaybackSettings(coordinator.PresetDuration, coordinator.PresetLocked);

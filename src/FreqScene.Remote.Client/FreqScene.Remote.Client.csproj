@@ -10,6 +10,7 @@
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false"
                       UndefineProperties="PublishAot;PublishTrimmed;RuntimeIdentifier" />
     <PackageReference Include="MessagePack" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <ProjectReference Include="../FreqScene.Remote/FreqScene.Remote.csproj" />
   </ItemGroup>
 </Project>

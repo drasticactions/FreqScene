@@ -23,10 +23,23 @@ public sealed class RemoteServer : IAsyncDisposable
     public RemoteBroadcaster Broadcaster { get; }
 
     public static async Task<RemoteServer> StartAsync(
-        int port, string? serverName, PairingManager pairing, CancellationToken cancellationToken = default)
+        int port,
+        string? serverName,
+        PairingManager pairing,
+        ILoggerFactory? loggerFactory = null,
+        CancellationToken cancellationToken = default)
     {
         var builder = WebApplication.CreateSlimBuilder();
-        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        if (loggerFactory is not null)
+        {
+            builder.Logging.ClearProviders();
+            builder.Services.AddSingleton(loggerFactory);
+        }
+        else
+        {
+            builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        }
+
         builder.WebHost.ConfigureKestrel(options =>
         {
             // Dual-stack: clients resolving the Bonjour host may dial IPv4 or IPv6.

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace FreqScene;
 
 internal sealed class LinuxVisualizerWindow : INativeVisualizerWindow
@@ -7,15 +9,17 @@ internal sealed class LinuxVisualizerWindow : INativeVisualizerWindow
     private readonly Action<int> _onRenderScaleChanged;
     private bool _closed;
 
-    public LinuxVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey)
+    public LinuxVisualizerWindow(
+        VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey, ILoggerFactory loggerFactory)
     {
+        var log = loggerFactory.CreateLogger<LinuxVisualizerWindow>();
         _coordinator = coordinator;
-        _host = new LinuxVisualizerHost(mode, coordinator.WallpaperTransparency, displayKey, AvaloniaUiDispatcher.Instance)
+        _host = new LinuxVisualizerHost(
+            mode, coordinator.WallpaperTransparency, displayKey, AvaloniaUiDispatcher.Instance, loggerFactory)
         {
             RenderScale = coordinator.RenderScalePercent / 100.0,
         };
-        _host.InitializationFailed += (_, ex) =>
-            System.Diagnostics.Trace.TraceError($"[native] visualizer init failed: {ex}");
+        _host.InitializationFailed += (_, ex) => log.LogError(ex, "visualizer init failed");
         _onRenderScaleChanged = percent => _host.RenderScale = percent / 100.0;
         coordinator.RenderScaleChanged += _onRenderScaleChanged;
         coordinator.AttachControl(_host);

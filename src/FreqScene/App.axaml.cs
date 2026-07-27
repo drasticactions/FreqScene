@@ -6,6 +6,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using FreqScene.Remote.Server;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FreqScene;
 
@@ -32,6 +34,8 @@ public partial class App : Application
     private RemoteClientManager? _clientManager;
     private MdnsBrowser? _mdnsBrowser;
     private VisualizerCoordinator? _coordinator;
+    private ILoggerFactory _loggerFactory = NullLoggerFactory.Instance;
+    private ILogger _log = NullLogger.Instance;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private object? _activeWindow;
     private DisplayMode _mode = DisplayMode.Window;
@@ -61,7 +65,12 @@ public partial class App : Application
                 _clientManager?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
                 _remoteManager?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
                 _coordinator?.Dispose();
+                _loggerFactory.Dispose();
             };
+            _loggerFactory = FreqSceneLogging.Create(
+                "freqscene", Program.LogLevelOverride ?? LogLevel.Information);
+            _log = _loggerFactory.CreateLogger<App>();
+            FreqSceneLogging.AttachProjectMLog(_loggerFactory);
             _coordinator = new VisualizerCoordinator { UiDispatcher = AvaloniaUiDispatcher.Instance };
             _settings = SettingsStore.Load();
             _settings.RenderScalePercent = QualityOptions.NormalizeRenderScale(_settings.RenderScalePercent);
@@ -75,18 +84,18 @@ public partial class App : Application
                 _coordinator.SetStopped(true);
             }
 
-            _remoteManager = new RemoteServerManager(_coordinator, _settings);
+            _remoteManager = new RemoteServerManager(_coordinator, _settings, _loggerFactory);
             _remoteManager.ClientsChanged += () => Dispatcher.UIThread.Post(UpdateRemoteStatus);
-            _remoteManager.StatusChanged += message => Console.WriteLine($"[remote] {message}");
+            _remoteManager.StatusChanged += message => _log.LogInformation("remote: {Message}", message);
             _remoteManager.Pairing.DevicesChanged += () => Dispatcher.UIThread.Post(BuildPairedDevicesMenu);
             if (_settings.AllowRemoteConnections)
             {
                 _ = _remoteManager.ApplyAsync();
             }
 
-            _clientManager = new RemoteClientManager(_coordinator);
+            _clientManager = new RemoteClientManager(_coordinator, loggerFactory: _loggerFactory);
             _clientManager.StateChanged += () => Dispatcher.UIThread.Post(UpdateClientStatus);
-            _clientManager.StatusChanged += message => Console.WriteLine($"[remote client] {message}");
+            _clientManager.StatusChanged += message => _log.LogInformation("remote client: {Message}", message);
             _clientManager.PairingRequired += () => Dispatcher.UIThread.Post(ShowPairPinDialog);
             try
             {
@@ -95,7 +104,7 @@ public partial class App : Application
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[remote client] mDNS browse unavailable: {ex.Message}");
+                _log.LogWarning(ex, "mDNS browse unavailable");
             }
 
             SetupTrayIcon(desktop);
@@ -134,10 +143,10 @@ public partial class App : Application
             if (OperatingSystem.IsMacOS() || OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
             {
                 INativeVisualizerWindow native = OperatingSystem.IsMacOS()
-                    ? new MacVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
+                    ? new MacVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay, _loggerFactory)
                     : OperatingSystem.IsWindowsVersionAtLeast(10, 0, 14393)
-                        ? new WindowsVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
-                        : new LinuxVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay);
+                        ? new WindowsVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay, _loggerFactory)
+                        : new LinuxVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay, _loggerFactory);
                 _activeWindow = native;
                 native.Show();
             }
@@ -218,6 +227,7 @@ public partial class App : Application
     private MainWindow CreateMainWindow(VisualizerCoordinator coordinator)
     {
         var window = new MainWindow(coordinator);
+        window.Visualizer.LoggerFactory = _loggerFactory;
         window.Closing += (_, e) =>
         {
             // Closing the window is a hide, not a mode change; the tray icon brings it back.
@@ -322,7 +332,7 @@ public partial class App : Application
         }
 
         _displayMenu.Items.Clear();
-        var displays = DisplayTargets.List();
+        var displays = DisplayTargets.List(_log);
         var selected = displays.FirstOrDefault(d => d.Key == _settings.PreferredDisplay)
             ?? displays.FirstOrDefault(d => d.IsPrimary)
             ?? displays.FirstOrDefault();
@@ -751,7 +761,7 @@ public partial class App : Application
 
         if (_playlistWindow is null)
         {
-            _playlistWindow = new PlaylistEditorWindow(_coordinator);
+            _playlistWindow = new PlaylistEditorWindow(_coordinator, _loggerFactory.CreateLogger<PlaylistEditorWindow>());
             _playlistWindow.Closing += (_, e) =>
             {
                 if (!_quitting)

@@ -1,11 +1,13 @@
 using FreqScene.Remote.Client;
+using Microsoft.Extensions.Logging;
 
 namespace FreqScene;
 
 public sealed class RemoteClientManager(
     VisualizerCoordinator coordinator,
     string? dataDirectory = null,
-    string? deviceModel = null) : IAsyncDisposable
+    string? deviceModel = null,
+    ILoggerFactory? loggerFactory = null) : IAsyncDisposable
 {
     private readonly PresetCache _cache = new(Path.Combine(
         dataDirectory ?? DefaultDataDirectory,
@@ -94,7 +96,8 @@ public sealed class RemoteClientManager(
             DeviceModel,
             _cache,
             rediscoverAsync,
-            authToken: _lastToken);
+            authToken: _lastToken,
+            loggerFactory: loggerFactory);
         session.PcmReceived += coordinator.MirrorPcm;
         session.PresetReceived += coordinator.MirrorPreset;
         session.StateChanged += state =>

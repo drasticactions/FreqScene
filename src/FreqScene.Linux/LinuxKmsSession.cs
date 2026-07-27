@@ -4,6 +4,8 @@ using Drm.Native;
 using Mesa.Egl;
 using Mesa.Gbm;
 using Mesa.Native;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FreqScene;
 
@@ -11,6 +13,7 @@ public sealed class LinuxKmsSession : ILinuxGlSession
 {
     private const int HotplugPollSeconds = 2;
 
+    private readonly ILogger _logger;
     private readonly SeatSession _seat;
     private readonly string _devicePath;
     private readonly uint _connectorId;
@@ -31,9 +34,10 @@ public sealed class LinuxKmsSession : ILinuxGlSession
     private DrmEventHandlers? _eventHandlers;
     private long _nextHotplugPoll;
 
-    public LinuxKmsSession(string? connectorName, string? modeSpec)
+    public LinuxKmsSession(string? connectorName, string? modeSpec, ILoggerFactory? loggerFactory = null)
     {
-        _seat = SeatSession.Open();
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<LinuxKmsSession>();
+        _seat = SeatSession.Open(_logger);
         try
         {
             (_devicePath, _fd, _connectorId, _connectorName, _crtcId, _mode) =
@@ -46,8 +50,9 @@ public sealed class LinuxKmsSession : ILinuxGlSession
                 Libgbm.GBM_FORMAT_ARGB8888,
                 GbmBufferFlags.Scanout | GbmBufferFlags.Rendering);
 
-            Trace.TraceInformation(
-                $"[kms] {_connectorName} on {_devicePath}: {_mode.HorizontalDisplay}x{_mode.VerticalDisplay}@{_mode.VerticalRefresh}");
+            _logger.LogInformation(
+                "{Connector} on {DevicePath}: {Width}x{Height}@{Refresh}",
+                _connectorName, _devicePath, _mode.HorizontalDisplay, _mode.VerticalDisplay, _mode.VerticalRefresh);
         }
         catch
         {
@@ -121,11 +126,11 @@ public sealed class LinuxKmsSession : ILinuxGlSession
         if (connected)
         {
             _needsModeset = true;
-            Trace.TraceInformation($"[kms] {_connectorName} reconnected; resuming.");
+            _logger.LogInformation("{Connector} reconnected; resuming.", _connectorName);
         }
         else
         {
-            Trace.TraceWarning($"[kms] {_connectorName} disconnected; rendering pauses until it returns.");
+            _logger.LogWarning("{Connector} disconnected; rendering pauses until it returns.", _connectorName);
         }
     }
 
@@ -459,7 +464,7 @@ public sealed class LinuxKmsSession : ILinuxGlSession
         }
         catch (DrmException ex)
         {
-            Trace.TraceError($"[kms] {ex.Message}; the frame cannot be presented.");
+            _logger.LogError("{Reason}; the frame cannot be presented.", ex.Message);
             return null;
         }
     }

@@ -1,5 +1,6 @@
 using Foundation;
 using FreqScene.Remote.Client;
+using Microsoft.Extensions.Logging;
 using ProjectMDotNet;
 using UIKit;
 
@@ -7,6 +8,8 @@ namespace FreqScene.iOS;
 
 public sealed class VisualizerViewController : UIViewController
 {
+    private static readonly ILogger Log = AppLog.Factory.CreateLogger<VisualizerViewController>();
+
     private readonly Uri? _serverAddress;
     private readonly string? _serverBonjourName;
     private ProjectMGLView? _glView;
@@ -112,14 +115,15 @@ public sealed class VisualizerViewController : UIViewController
             UIDevice.CurrentDevice.Model,
             new PresetCache(cacheDir),
             bonjourName is null ? null : ct => BonjourResolver.ResolveByNameAsync(bonjourName, ct),
-            _pairings.Find(bonjourName, address.Host)?.Token);
+            _pairings.Find(bonjourName, address.Host)?.Token,
+            loggerFactory: AppLog.Factory);
 
         // PcmBuffer is thread-safe; PCM flows straight in from the hub thread.
         session.PcmReceived += samples => _glView?.AddPcm(samples, AudioChannels.Stereo);
         session.PresetReceived += (content, hardCut) =>
             InvokeOnMainThread(() => _glView?.LoadPresetData(content, smoothTransition: !hardCut));
         session.StateChanged += state => InvokeOnMainThread(() => ApplySessionState(state));
-        session.StatusChanged += message => Console.WriteLine($"[remote] {message}");
+        session.StatusChanged += message => Log.LogInformation("remote: {Message}", message);
 
         _session = session;
         StartSynthetic();

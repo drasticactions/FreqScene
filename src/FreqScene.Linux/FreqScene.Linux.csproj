@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="drm-dotnet" />
     <PackageReference Include="mesa-dotnet" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="seatd-dotnet" />
     <PackageReference Include="WaylandSharpest" />
     <ProjectReference Include="../FreqScene.Core/FreqScene.Core.csproj" />

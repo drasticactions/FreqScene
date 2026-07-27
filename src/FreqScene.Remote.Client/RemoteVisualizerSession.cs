@@ -2,6 +2,7 @@ using System.Text;
 using Grpc.Core;
 using Grpc.Net.Client;
 using MagicOnion.Client;
+using Microsoft.Extensions.Logging;
 
 namespace FreqScene.Remote.Client;
 
@@ -23,6 +24,7 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
     private readonly PresetCache _cache;
     private readonly Func<CancellationToken, Task<Uri?>>? _rediscoverAsync;
     private readonly string _authToken;
+    private readonly ILoggerFactory? _loggerFactory;
     private readonly CancellationTokenSource _cts = new();
     private readonly Receiver _receiver;
     private Uri _address;
@@ -41,7 +43,8 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
         string deviceModel,
         PresetCache presetCache,
         Func<CancellationToken, Task<Uri?>>? rediscoverAsync = null,
-        string? authToken = null)
+        string? authToken = null,
+        ILoggerFactory? loggerFactory = null)
     {
         RemoteClientAotSupport.EnsureInitialized();
         _address = address;
@@ -50,6 +53,7 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
         _cache = presetCache;
         _rediscoverAsync = rediscoverAsync;
         _authToken = authToken ?? "";
+        _loggerFactory = loggerFactory;
         _receiver = new Receiver(this);
     }
 
@@ -85,6 +89,7 @@ public sealed class RemoteVisualizerSession : IAsyncDisposable
                 SetState(attempt == 0 ? RemoteSessionState.Connecting : RemoteSessionState.Reconnecting);
                 channel = GrpcChannel.ForAddress(_address, new GrpcChannelOptions
                 {
+                    LoggerFactory = _loggerFactory,
                     HttpHandler = new SocketsHttpHandler
                     {
                         ConnectTimeout = TimeSpan.FromSeconds(5),

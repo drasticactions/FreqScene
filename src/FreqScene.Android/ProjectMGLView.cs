@@ -1,7 +1,7 @@
 using Android.Content;
 using Android.Opengl;
-using Android.Util;
 using Javax.Microedition.Khronos.Opengles;
+using Microsoft.Extensions.Logging;
 using EGLConfig = Javax.Microedition.Khronos.Egl.EGLConfig;
 using ProjectMDotNet;
 
@@ -9,12 +9,9 @@ namespace FreqScene.Android;
 
 public sealed class ProjectMGLView : GLSurfaceView
 {
-    private readonly Renderer _renderer;
+    private static readonly ILogger Log = AppLog.Factory.CreateLogger<ProjectMGLView>();
 
-    static ProjectMGLView()
-    {
-        ProjectMLog.Message += (message, _) => Log.Info("projectM", message);
-    }
+    private readonly Renderer _renderer;
 
     public ProjectMGLView(Context context)
         : base(context)
@@ -102,7 +99,7 @@ public sealed class ProjectMGLView : GLSurfaceView
             catch (Exception ex)
             {
                 _failed = true;
-                Log.Error("FreqScene", $"projectM init failed: {ex}");
+                Log.LogError(ex, "visualizer init failed");
             }
         }
 
