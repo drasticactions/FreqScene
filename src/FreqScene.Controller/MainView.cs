@@ -7,7 +7,7 @@ using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
-namespace FreqScene.Tui;
+namespace FreqScene.Controller;
 
 public sealed class MainView : Runnable
 {

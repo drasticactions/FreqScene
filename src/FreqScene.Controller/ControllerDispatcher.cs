@@ -1,8 +1,8 @@
 using Terminal.Gui.App;
 
-namespace FreqScene.Tui;
+namespace FreqScene.Controller;
 
-public sealed class TuiDispatcher(IApplication app) : IUiDispatcher
+public sealed class ControllerDispatcher(IApplication app) : IUiDispatcher
 {
     public bool CheckAccess() => app.MainThreadId == Environment.CurrentManagedThreadId;
 

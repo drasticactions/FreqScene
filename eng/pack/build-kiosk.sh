@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Build FreqScene.Cli (freqscene-cli) into a portable, self-contained NativeAOT
-# package (tar.gz). Linux-only: the CLI renders headless via FreqScene.Linux
-# (Wayland or DRM/KMS) and has no Windows/macOS counterpart.
+# Build FreqScene.Kiosk (freqscene-kiosk) into a portable, self-contained
+# NativeAOT package (tar.gz). Linux-only: the kiosk head renders headless via
+# FreqScene.Linux (Wayland or DRM/KMS) and has no Windows/macOS counterpart.
 #
-# Unlike the TUI, the CLI DOES create a ProjectM instance, so the package ships
-# the native libprojectM libraries (copied into runtimes/<rid>/native by the
-# csproj). The OpenAL-Soft runtime that Silk.NET.OpenAL.Soft.Native brings in for
-# --audio capture is also included in the publish tree.
+# Unlike the controller, the kiosk head DOES create a ProjectM instance, so the
+# package ships the native libprojectM libraries (copied into runtimes/<rid>/
+# native by the csproj). The OpenAL-Soft runtime pulled in by
+# Silk.NET.OpenAL.Soft.Native for --audio capture is also in the publish tree.
 #
 # Pipeline:
 #   1. Ensure native libprojectM exists for the target RID (auto-builds a missing
@@ -14,10 +14,10 @@
 #   2. `dotnet publish -p:FreqSceneAot=true` self-contained for the RID.
 #   3. Assemble a package dir: the publish tree plus a README.txt and a systemd
 #      unit template for kiosk deployments.
-#   4. Emit freqscene-cli-<version>-x64.tar.gz.
+#   4. Emit freqscene-kiosk-<version>-x64.tar.gz.
 #
 # Usage:
-#   eng/pack/build-cli.sh [options]
+#   eng/pack/build-kiosk.sh [options]
 #
 # Options:
 #   --version <X.Y.Z>    Version used in the archive name (default: 1.0.0)
@@ -33,11 +33,11 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-BIN_NAME="freqscene-cli"             # AssemblyName == apphost/AOT binary name
-PKG_NAME="freqscene-cli"             # package dir + archive basename
-PROJECT="$REPO_ROOT/src/FreqScene.Cli/FreqScene.Cli.csproj"
-README_SRC="$REPO_ROOT/src/FreqScene.Cli/README.txt"
-UNIT_SRC="$REPO_ROOT/src/FreqScene.Cli/$BIN_NAME.service"
+BIN_NAME="freqscene-kiosk"             # AssemblyName == apphost/AOT binary name
+PKG_NAME="freqscene-kiosk"             # package dir + archive basename
+PROJECT="$REPO_ROOT/src/FreqScene.Kiosk/FreqScene.Kiosk.csproj"
+README_SRC="$REPO_ROOT/src/FreqScene.Kiosk/README.txt"
+UNIT_SRC="$REPO_ROOT/src/FreqScene.Kiosk/$BIN_NAME.service"
 APP_VERSION="1.0.0"
 ARCH="x64"
 OUTPUT_DIR="$REPO_ROOT/artifacts/pack"
@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$(uname -s)" == "Linux" ]] || die "this script must run on Linux (freqscene-cli is Linux-only)"
+[[ "$(uname -s)" == "Linux" ]] || die "this script must run on Linux (freqscene-kiosk is Linux-only)"
 case "$ARCH" in x64|arm64) ;; *) die "--arch must be x64|arm64" ;; esac
 
 # Map the friendly arch to a .NET RID.
@@ -89,7 +89,7 @@ fi
 # ---------------------------------------------------------------------------
 # 2. dotnet publish (NativeAOT, self-contained)
 # ---------------------------------------------------------------------------
-WORK_DIR="$REPO_ROOT/artifacts/pack-work-cli"
+WORK_DIR="$REPO_ROOT/artifacts/pack-work-kiosk"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 

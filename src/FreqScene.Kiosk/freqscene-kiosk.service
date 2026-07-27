@@ -1,9 +1,9 @@
 # FreqScene
 #
 # Install:
-#   sudo cp freqscene-cli.service /etc/systemd/system/
-#   sudo cp -r . /opt/freqscene-cli
-#   sudo systemctl enable --now freqscene-cli
+#   sudo cp freqscene-kiosk.service /etc/systemd/system/
+#   sudo cp -r . /opt/freqscene-kiosk
+#   sudo systemctl enable --now freqscene-kiosk
 [Unit]
 Description=FreqScene
 After=systemd-user-sessions.service seatd.service
@@ -13,8 +13,8 @@ Wants=seatd.service
 Type=simple
 User=freqscene
 SupplementaryGroups=video render
-WorkingDirectory=/opt/freqscene-cli
-ExecStart=/opt/freqscene-cli/freqscene-cli --backend drm
+WorkingDirectory=/opt/freqscene-kiosk
+ExecStart=/opt/freqscene-kiosk/freqscene-kiosk --backend drm
 Restart=on-failure
 RestartSec=2
 

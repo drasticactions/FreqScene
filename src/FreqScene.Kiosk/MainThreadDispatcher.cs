@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace FreqScene.Cli;
+namespace FreqScene.Kiosk;
 
 internal sealed class MainThreadDispatcher : IUiDispatcher
 {

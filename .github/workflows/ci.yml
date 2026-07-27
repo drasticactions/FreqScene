@@ -112,12 +112,12 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # freqscene-cli — the Linux-only headless head. Like the desktop app it ships
+  # freqscene-kiosk — the Linux-only headless head. Like the desktop app it ships
   # native libprojectM (it creates a ProjectM instance), so it needs the full
   # CMake/GL toolchain and the recursive submodules (external/projectm for the
   # native build, external/MagicOnion via FreqScene.Core -> FreqScene.Remote.Server).
-  cli-linux:
-    name: CLI Linux x64 (AOT tarball)
+  kiosk-linux:
+    name: Kiosk Linux x64 (AOT tarball)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -141,14 +141,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build CLI tarball (NativeAOT)
-        run: eng/pack/build-cli.sh --arch x64 --version "${VERSION}"
+      - name: Build kiosk tarball (NativeAOT)
+        run: eng/pack/build-kiosk.sh --arch x64 --version "${VERSION}"
         env:
           VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: freqscene-cli-linux-x64
+          name: freqscene-kiosk-linux-x64
           path: artifacts/pack/*.tar.gz
           if-no-files-found: error
 
@@ -185,14 +185,14 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # FreqScene.Tui — the headless/terminal head. Shipped as a NativeAOT binary in a
-  # plain archive: no app bundle, no AppImage, and no native libprojectM (the TUI
-  # never creates a ProjectM instance), so these jobs need no CMake toolchain and
-  # skip the (large) external/projectm submodule. They still need external/MagicOnion,
-  # which FreqScene.Remote* consume as ProjectReferences — hence the targeted init
-  # below instead of `submodules: recursive` on checkout.
-  tui-macos:
-    name: TUI macOS (universal, adhoc-signed)
+  # FreqScene.Controller — the terminal head. Shipped as a NativeAOT binary in a
+  # plain archive: no app bundle, no AppImage, and no native libprojectM (the
+  # controller never creates a ProjectM instance), so these jobs need no CMake
+  # toolchain and skip the (large) external/projectm submodule. They still need
+  # external/MagicOnion, which FreqScene.Remote* consume as ProjectReferences —
+  # hence the targeted init below instead of `submodules: recursive` on checkout.
+  controller-macos:
+    name: Controller macOS (universal, adhoc-signed)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -209,20 +209,20 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build TUI tarball (universal, NativeAOT, ad-hoc signed)
-        run: eng/pack/build-tui.sh --os macos --arch universal --version "${VERSION}"
+      - name: Build controller tarball (universal, NativeAOT, ad-hoc signed)
+        run: eng/pack/build-controller.sh --os macos --arch universal --version "${VERSION}"
         env:
           VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: freqscene-tui-macos-universal
+          name: freqscene-controller-macos-universal
           path: artifacts/pack/*.tar.gz
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  tui-linux:
-    name: TUI Linux x64 (AOT tarball)
+  controller-linux:
+    name: Controller Linux x64 (AOT tarball)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -236,7 +236,7 @@ jobs:
 
       - name: Install NativeAOT build dependencies
         # NativeAOT links with clang against zlib; no CMake/GL packages needed
-        # here because the TUI ships no native libprojectM.
+        # here because the controller ships no native libprojectM.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -247,20 +247,20 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build TUI tarball (NativeAOT)
-        run: eng/pack/build-tui.sh --os linux --arch x64 --version "${VERSION}"
+      - name: Build controller tarball (NativeAOT)
+        run: eng/pack/build-controller.sh --os linux --arch x64 --version "${VERSION}"
         env:
           VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: freqscene-tui-linux-x64
+          name: freqscene-controller-linux-x64
           path: artifacts/pack/*.tar.gz
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  tui-windows:
-    name: TUI Windows x64 (AOT zip)
+  controller-windows:
+    name: Controller Windows x64 (AOT zip)
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -278,16 +278,16 @@ jobs:
         shell: bash
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build TUI zip (NativeAOT)
+      - name: Build controller zip (NativeAOT)
         shell: pwsh
         run: |
-          eng/pack/build-tui.ps1 -Arch x64 -Version $env:VERSION
+          eng/pack/build-controller.ps1 -Arch x64 -Version $env:VERSION
         env:
           VERSION: ${{ steps.tagver.outputs.version || '1.0.0' }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: freqscene-tui-windows-x64
+          name: freqscene-controller-windows-x64
           path: artifacts/pack/*.zip
           if-no-files-found: error
 
@@ -296,7 +296,7 @@ jobs:
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, linux, windows, cli-linux, tui-macos, tui-linux, tui-windows]
+    needs: [macos, linux, windows, kiosk-linux, controller-macos, controller-linux, controller-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write

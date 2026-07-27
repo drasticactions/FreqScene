@@ -1,17 +1,19 @@
 <#
 .SYNOPSIS
-  Build FreqScene.Tui into a portable, self-contained Windows zip (NativeAOT).
+  Build FreqScene.Controller into a self-contained Windows zip (NativeAOT).
 
 .DESCRIPTION
   Pipeline (per target architecture):
     1. Gate on the MSVC C++ toolchain NativeAOT needs (fail fast with the exact
        VS component to install; arm64 additionally needs the ARM64 VC tools).
-    2. `dotnet publish` NativeAOT (self-contained) into a "FreqScene.Tui" folder.
-    3. Optionally Authenticode-sign the produced FreqScene.Tui.exe with signtool.
-    4. Zip the folder to artifacts/pack/FreqScene.Tui-<version>-<arch>.zip.
+    2. `dotnet publish` NativeAOT (self-contained) into a "FreqScene.Controller"
+       folder.
+    3. Optionally Authenticode-sign the produced FreqScene.Controller.exe with
+       signtool.
+    4. Zip the folder to artifacts/pack/FreqScene.Controller-<version>-<arch>.zip.
 
-  Unlike the desktop head this ships no native libprojectM: the TUI never creates
-  a ProjectM instance (it starts with rendering stopped and attaches no
+  Unlike the desktop head this ships no native libprojectM: the controller never
+  creates a ProjectM instance (it starts with rendering stopped and attaches no
   IVisualizerHost), so the DllImport resolver in NativeLoader is never hit. The
   only native asset in the package is the OpenAL-Soft runtime that
   Silk.NET.OpenAL.Soft.Native brings in for CaptureAudioSource.
@@ -42,8 +44,8 @@
   RFC 3161 timestamp server used when signing (default: DigiCert).
 
 .EXAMPLE
-  pwsh eng/pack/build-tui.ps1
-  pwsh eng/pack/build-tui.ps1 -Arch both -Version 1.2.0
+  pwsh eng/pack/build-controller.ps1
+  pwsh eng/pack/build-controller.ps1 -Arch both -Version 1.2.0
 #>
 [CmdletBinding()]
 param(
@@ -62,11 +64,11 @@ $ErrorActionPreference = "Stop"
 function Info($msg) { Write-Host "==> $msg" }
 function Die($msg) { throw $msg }
 
-if (-not $IsWindows) { Die "this script must run on Windows (macOS/Linux use build-tui.sh)" }
+if (-not $IsWindows) { Die "this script must run on Windows (macOS/Linux use build-controller.sh)" }
 
 $RepoRoot = (Resolve-Path "$PSScriptRoot/../..").Path
-$Project = Join-Path $RepoRoot "src/FreqScene.Tui/FreqScene.Tui.csproj"
-$AppName = "FreqScene.Tui"
+$Project = Join-Path $RepoRoot "src/FreqScene.Controller/FreqScene.Controller.csproj"
+$AppName = "FreqScene.Controller"
 if (-not $Output) { $Output = Join-Path $RepoRoot "artifacts/pack" }
 
 [string[]]$Rids = switch ($Arch) {
@@ -155,7 +157,7 @@ $InstallerDir = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Inst
 $signtool = if ($Signing) { Resolve-SignTool } else { $null }
 if ($Signing) { Info "signing with: $signtool" }
 
-$WorkDir = Join-Path $RepoRoot "artifacts/pack-work-tui-windows"
+$WorkDir = Join-Path $RepoRoot "artifacts/pack-work-controller-windows"
 if (Test-Path $WorkDir) { Remove-Item -Recurse -Force $WorkDir }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 New-Item -ItemType Directory -Force -Path $Output | Out-Null

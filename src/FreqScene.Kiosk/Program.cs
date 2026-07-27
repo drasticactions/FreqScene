@@ -2,7 +2,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-namespace FreqScene.Cli;
+namespace FreqScene.Kiosk;
 
 internal static class Program
 {
@@ -77,7 +77,7 @@ internal static class Program
             verboseOption, presetsArgument,
         };
 
-        root.SetAction(parseResult => Run(new CliOptions(
+        root.SetAction(parseResult => Run(new KioskOptions(
             parseResult.GetValue(outputOption),
             parseResult.GetValue(modeOption),
             parseResult.GetValue(backendOption)!,
@@ -96,7 +96,7 @@ internal static class Program
         return root.Parse(args).Invoke();
     }
 
-    private sealed record CliOptions(
+    private sealed record KioskOptions(
         string? Output,
         string? Mode,
         string Backend,
@@ -112,15 +112,15 @@ internal static class Program
         bool Verbose,
         string[] Presets);
 
-    private static int Run(CliOptions options)
+    private static int Run(KioskOptions options)
     {
         if (!OperatingSystem.IsLinux())
         {
-            Console.Error.WriteLine("freqscene-cli only runs on Linux.");
+            Console.Error.WriteLine("freqscene-kiosk only runs on Linux.");
             return 1;
         }
 
-        Trace.Listeners.Add(new CliTraceListener(options.Verbose));
+        Trace.Listeners.Add(new KioskTraceListener(options.Verbose));
 
         if (options.ListOutputs)
         {
@@ -221,7 +221,7 @@ internal static class Program
         Remote.Server.MdnsBrowser? mdns = null;
         if (options.Connect is { } target)
         {
-            client = new RemoteClientManager(coordinator, options.ConfigDir, deviceModel: "CLI");
+            client = new RemoteClientManager(coordinator, options.ConfigDir, deviceModel: "Kiosk");
             client.StatusChanged += message => Console.WriteLine($"[client] {message}");
             Remote.Client.RemoteSessionState? lastState = null;
             var currentClient = client;

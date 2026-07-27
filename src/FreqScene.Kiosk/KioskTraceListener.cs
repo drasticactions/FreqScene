@@ -1,13 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
 
-namespace FreqScene.Cli;
+namespace FreqScene.Kiosk;
 
-// Routes Trace output (the logging idiom used across FreqScene) to the
-// console. Informational and higher events always print; Trace.Write/WriteLine
-// carry verbose diagnostics (e.g. libseat debug messages) and only print with
-// --verbose.
-internal sealed class CliTraceListener(bool verbose) : TraceListener
+internal sealed class KioskTraceListener(bool verbose) : TraceListener
 {
     public override void Write(string? message)
     {

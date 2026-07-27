@@ -1,5 +1,5 @@
 using FreqScene;
-using FreqScene.Tui;
+using FreqScene.Controller;
 using Terminal.Gui.App;
 
 var settings = SettingsStore.Load();
@@ -9,7 +9,7 @@ VisualizerCoordinator? coordinator = null;
 RemoteServerManager? remoteManager = null;
 try
 {
-    coordinator = new VisualizerCoordinator { UiDispatcher = new TuiDispatcher(app) };
+    coordinator = new VisualizerCoordinator { UiDispatcher = new ControllerDispatcher(app) };
 
     coordinator.SetStopped(true);
 

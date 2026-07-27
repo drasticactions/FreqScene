@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build FreqScene.Tui into a portable, self-contained NativeAOT package (tar.gz).
+# Build FreqScene.Controller into a self-contained NativeAOT package (tar.gz).
 #
-# Unlike the desktop head this ships no native libprojectM: the TUI never creates
-# a ProjectM instance (it starts with rendering stopped and attaches no
+# Unlike the desktop head this ships no native libprojectM: the controller never
+# creates a ProjectM instance (it starts with rendering stopped and attaches no
 # IVisualizerHost), so the DllImport resolver in NativeLoader is never hit. The
 # only native asset in the package is the OpenAL-Soft runtime that
 # Silk.NET.OpenAL.Soft.Native brings in for CaptureAudioSource.
@@ -13,10 +13,10 @@
 #      lipo'ing every Mach-O (the AOT executable and the OpenAL dylib).
 #   3. macOS: ad-hoc codesign every Mach-O. A lipo'd binary carries an invalid
 #      signature and will not execute on Apple silicon until it is re-signed.
-#   4. Emit FreqScene.Tui-<version>-<arch>.tar.gz.
+#   4. Emit FreqScene.Controller-<version>-<arch>.tar.gz.
 #
 # Usage:
-#   eng/pack/build-tui.sh [options]
+#   eng/pack/build-controller.sh [options]
 #
 # Options:
 #   --os <macos|linux>            Target OS (default: the host)
@@ -33,8 +33,8 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-APP_NAME="FreqScene.Tui"             # assembly name == apphost/AOT binary name
-PROJECT="$REPO_ROOT/src/FreqScene.Tui/FreqScene.Tui.csproj"
+APP_NAME="FreqScene.Controller"             # assembly name == apphost/AOT binary name
+PROJECT="$REPO_ROOT/src/FreqScene.Controller/FreqScene.Controller.csproj"
 APP_VERSION="1.0.0"
 OUTPUT_DIR="$REPO_ROOT/artifacts/pack"
 TARGET_OS=""
@@ -58,7 +58,7 @@ if [[ -z "$TARGET_OS" ]]; then
   case "$(uname -s)" in
     Darwin) TARGET_OS=macos ;;
     Linux)  TARGET_OS=linux ;;
-    *) die "unsupported host $(uname -s); pass --os macos|linux (Windows uses build-tui.ps1)" ;;
+    *) die "unsupported host $(uname -s); pass --os macos|linux (Windows uses build-controller.ps1)" ;;
   esac
 fi
 case "$TARGET_OS" in macos|linux) ;; *) die "--os must be macos|linux" ;; esac
@@ -101,7 +101,7 @@ fi
 # ---------------------------------------------------------------------------
 # 1. dotnet publish (NativeAOT, self-contained) per RID
 # ---------------------------------------------------------------------------
-WORK_DIR="$REPO_ROOT/artifacts/pack-work-tui-$TARGET_OS"
+WORK_DIR="$REPO_ROOT/artifacts/pack-work-controller-$TARGET_OS"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 

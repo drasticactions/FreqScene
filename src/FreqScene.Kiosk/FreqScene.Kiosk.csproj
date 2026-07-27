@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <RootNamespace>FreqScene.Cli</RootNamespace>
-    <AssemblyName>freqscene-cli</AssemblyName>
+    <RootNamespace>FreqScene.Kiosk</RootNamespace>
+    <AssemblyName>freqscene-kiosk</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishAot Condition="'$(FreqSceneAot)' == 'true'">true</PublishAot>
     <PublishDocumentationFiles>false</PublishDocumentationFiles>
