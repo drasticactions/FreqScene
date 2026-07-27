@@ -19,7 +19,7 @@ internal sealed class OsLogLoggerProvider : ILoggerProvider
 
     private sealed class OsLogger(string category) : ILogger
     {
-        private readonly OSLog _log = new(Subsystem, category);
+        private readonly CoreFoundation.OSLog _log = new(Subsystem, category);
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
