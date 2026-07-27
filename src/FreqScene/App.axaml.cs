@@ -135,7 +135,7 @@ public partial class App : Application
             {
                 INativeVisualizerWindow native = OperatingSystem.IsMacOS()
                     ? new MacVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
-                    : OperatingSystem.IsWindows()
+                    : OperatingSystem.IsWindowsVersionAtLeast(10, 0, 14393)
                         ? new WindowsVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay)
                         : new LinuxVisualizerWindow(_coordinator, mode, _settings.PreferredDisplay);
                 _activeWindow = native;

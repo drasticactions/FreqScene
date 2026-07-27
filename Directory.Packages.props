@@ -11,6 +11,7 @@
     <PackageVersion Include="MeaMod.DNS" Version="1.0.71" />
     <PackageVersion Include="mesa-dotnet" Version="26.1.5" />
     <PackageVersion Include="MessagePack" Version="3.1.7" />
+    <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.298" />
     <PackageVersion Include="MessagePack.Annotations" Version="3.1.7" />
     <PackageVersion Include="seatd-dotnet" Version="0.9.3" />
     <PackageVersion Include="WaylandSharpest" Version="1.26.1" />

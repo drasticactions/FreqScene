@@ -1,9 +1,17 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Avalonia.Threading;
 using ProjectMDotNet;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Gdi;
+using Windows.Win32.Graphics.OpenGL;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace FreqScene;
 
+[SupportedOSPlatform("windows10.0.14393")]
 internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposable
 {
     private const int WglDrawToWindowArb = 0x2001;
@@ -21,15 +29,7 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
     private const int WglContextProfileMaskArb = 0x9126;
     private const int WglContextCoreProfileBitArb = 0x0001;
 
-    private const uint PfdDrawToWindow = 0x0000_0004;
-    private const uint PfdSupportOpenGl = 0x0000_0020;
-    private const uint PfdDoubleBuffer = 0x0000_0001;
-    private const uint PfdSupportComposition = 0x0000_8000;
-
-    private const uint MonitorDefaultToNearest = 2;
-    private const uint EnumCurrentSettings = uint.MaxValue;
-
-    private readonly IntPtr _hwnd;
+    private readonly HWND _hwnd;
     private readonly bool _transparent;
     private readonly PcmBuffer _pcmBuffer = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _glActions = new();
@@ -37,10 +37,10 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
     private readonly ManualResetEvent _stopEvent = new(false);
 
     private Thread? _renderThread;
-    private IntPtr _dc;
-    private IntPtr _glContext;
-    private delegate* unmanaged<IntPtr, IntPtr, int*, IntPtr> _createContextAttribs;
-    private delegate* unmanaged<IntPtr, int*, float*, uint, int*, uint*, int> _choosePixelFormat;
+    private HDC _dc;
+    private HGLRC _glContext;
+    private delegate* unmanaged<HDC, HGLRC, int*, HGLRC> _createContextAttribs;
+    private delegate* unmanaged<HDC, int*, float*, uint, int*, uint*, int> _choosePixelFormat;
     private delegate* unmanaged<int, int> _swapInterval;
     private volatile ProjectM? _instance;
     private volatile ProjectMPlaylist? _playlist;
@@ -56,7 +56,7 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
     private double _cachedRefreshRate = 60;
     private long _refreshRateExpiry;
 
-    public WindowsVisualizerHost(IntPtr hwnd, bool transparent)
+    public WindowsVisualizerHost(HWND hwnd, bool transparent)
     {
         _hwnd = hwnd;
         _transparent = transparent;
@@ -210,7 +210,7 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
             return;
         }
 
-        WindowsInterop.TimeBeginPeriod(1);
+        PInvoke.timeBeginPeriod(1);
         try
         {
             while (!_stopEvent.WaitOne(NextFrameDelayMs()))
@@ -227,7 +227,7 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
         }
         finally
         {
-            WindowsInterop.TimeEndPeriod(1);
+            PInvoke.timeEndPeriod(1);
             TeardownOnRenderThread();
         }
     }
@@ -236,20 +236,21 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
     {
         LoadWglExtensions();
 
-        _dc = WindowsInterop.GetDC(_hwnd);
-        if (_dc == IntPtr.Zero)
+        _dc = PInvoke.GetDC(_hwnd);
+        if (_dc.IsNull)
         {
             throw new InvalidOperationException("GetDC failed for the visualizer window.");
         }
 
-        var pfd = new WindowsInterop.PixelFormatDescriptor
+        var pfd = new PIXELFORMATDESCRIPTOR
         {
-            Size = (ushort)sizeof(WindowsInterop.PixelFormatDescriptor),
-            Version = 1,
-            Flags = PfdDrawToWindow | PfdSupportOpenGl | PfdDoubleBuffer | PfdSupportComposition,
-            ColorBits = 32,
-            AlphaBits = 8,
-            DepthBits = 24,
+            nSize = (ushort)sizeof(PIXELFORMATDESCRIPTOR),
+            nVersion = 1,
+            dwFlags = PFD_FLAGS.PFD_DRAW_TO_WINDOW | PFD_FLAGS.PFD_SUPPORT_OPENGL |
+                PFD_FLAGS.PFD_DOUBLEBUFFER | PFD_FLAGS.PFD_SUPPORT_COMPOSITION,
+            cColorBits = 32,
+            cAlphaBits = 8,
+            cDepthBits = 24,
         };
 
         var format = 0;
@@ -277,7 +278,7 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
 
         if (format == 0)
         {
-            format = WindowsInterop.ChoosePixelFormat(_dc, ref pfd);
+            format = PInvoke.ChoosePixelFormat(_dc, in pfd);
         }
 
         if (format == 0)
@@ -285,8 +286,8 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
             throw new InvalidOperationException("No usable pixel format is available.");
         }
 
-        WindowsInterop.DescribePixelFormat(_dc, format, (uint)sizeof(WindowsInterop.PixelFormatDescriptor), ref pfd);
-        if (!WindowsInterop.SetPixelFormat(_dc, format, ref pfd))
+        PInvoke.DescribePixelFormat(_dc, format, (uint)sizeof(PIXELFORMATDESCRIPTOR), &pfd);
+        if (!PInvoke.SetPixelFormat(_dc, format, in pfd))
         {
             throw new InvalidOperationException("SetPixelFormat failed.");
         }
@@ -300,15 +301,15 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
                 WglContextProfileMaskArb, WglContextCoreProfileBitArb,
                 0,
             };
-            _glContext = _createContextAttribs(_dc, IntPtr.Zero, contextAttribs);
+            _glContext = _createContextAttribs(_dc, HGLRC.Null, contextAttribs);
         }
 
-        if (_glContext == IntPtr.Zero)
+        if (_glContext.IsNull)
         {
             throw new InvalidOperationException("An OpenGL 3.3 core context could not be created.");
         }
 
-        if (!WindowsInterop.WglMakeCurrent(_dc, _glContext))
+        if (!PInvoke.wglMakeCurrent(_dc, _glContext))
         {
             throw new InvalidOperationException("wglMakeCurrent failed.");
         }
@@ -326,60 +327,60 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
     {
         var className = EnsureBootstrapClass();
 
-        var dummy = WindowsInterop.CreateWindowExW(
+        var dummy = PInvoke.CreateWindowEx(
             0, className, string.Empty, 0, 0, 0, 1, 1,
-            IntPtr.Zero, IntPtr.Zero, WindowsInterop.GetModuleHandleW(null), IntPtr.Zero);
-        if (dummy == IntPtr.Zero)
+            HWND.Null, null, PInvoke.GetModuleHandle((string?)null), null);
+        if (dummy.IsNull)
         {
             throw new InvalidOperationException("The WGL bootstrap window could not be created.");
         }
 
-        var dc = IntPtr.Zero;
-        var context = IntPtr.Zero;
+        var dc = HDC.Null;
+        var context = HGLRC.Null;
         try
         {
-            dc = WindowsInterop.GetDC(dummy);
-            var pfd = new WindowsInterop.PixelFormatDescriptor
+            dc = PInvoke.GetDC(dummy);
+            var pfd = new PIXELFORMATDESCRIPTOR
             {
-                Size = (ushort)sizeof(WindowsInterop.PixelFormatDescriptor),
-                Version = 1,
-                Flags = PfdDrawToWindow | PfdSupportOpenGl | PfdDoubleBuffer,
-                ColorBits = 32,
-                DepthBits = 24,
+                nSize = (ushort)sizeof(PIXELFORMATDESCRIPTOR),
+                nVersion = 1,
+                dwFlags = PFD_FLAGS.PFD_DRAW_TO_WINDOW | PFD_FLAGS.PFD_SUPPORT_OPENGL | PFD_FLAGS.PFD_DOUBLEBUFFER,
+                cColorBits = 32,
+                cDepthBits = 24,
             };
-            var format = WindowsInterop.ChoosePixelFormat(dc, ref pfd);
-            if (format == 0 || !WindowsInterop.SetPixelFormat(dc, format, ref pfd))
+            var format = PInvoke.ChoosePixelFormat(dc, in pfd);
+            if (format == 0 || !PInvoke.SetPixelFormat(dc, format, in pfd))
             {
                 throw new InvalidOperationException("The WGL bootstrap pixel format could not be set.");
             }
 
-            context = WindowsInterop.WglCreateContext(dc);
-            if (context == IntPtr.Zero || !WindowsInterop.WglMakeCurrent(dc, context))
+            context = PInvoke.wglCreateContext(dc);
+            if (context.IsNull || !PInvoke.wglMakeCurrent(dc, context))
             {
                 throw new InvalidOperationException("The WGL bootstrap context could not be created.");
             }
 
-            _createContextAttribs = (delegate* unmanaged<IntPtr, IntPtr, int*, IntPtr>)
-                WindowsInterop.WglGetProcAddress("wglCreateContextAttribsARB");
-            _choosePixelFormat = (delegate* unmanaged<IntPtr, int*, float*, uint, int*, uint*, int>)
-                WindowsInterop.WglGetProcAddress("wglChoosePixelFormatARB");
+            _createContextAttribs = (delegate* unmanaged<HDC, HGLRC, int*, HGLRC>)
+                (IntPtr)PInvoke.wglGetProcAddress("wglCreateContextAttribsARB");
+            _choosePixelFormat = (delegate* unmanaged<HDC, int*, float*, uint, int*, uint*, int>)
+                (IntPtr)PInvoke.wglGetProcAddress("wglChoosePixelFormatARB");
             _swapInterval = (delegate* unmanaged<int, int>)
-                WindowsInterop.WglGetProcAddress("wglSwapIntervalEXT");
+                (IntPtr)PInvoke.wglGetProcAddress("wglSwapIntervalEXT");
         }
         finally
         {
-            WindowsInterop.WglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
-            if (context != IntPtr.Zero)
+            PInvoke.wglMakeCurrent(HDC.Null, HGLRC.Null);
+            if (!context.IsNull)
             {
-                WindowsInterop.WglDeleteContext(context);
+                PInvoke.wglDeleteContext(context);
             }
 
-            if (dc != IntPtr.Zero)
+            if (!dc.IsNull)
             {
-                WindowsInterop.ReleaseDC(dummy, dc);
+                PInvoke.ReleaseDC(dummy, dc);
             }
 
-            WindowsInterop.DestroyWindow(dummy);
+            PInvoke.DestroyWindow(dummy);
         }
     }
 
@@ -393,17 +394,16 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
         }
 
         const string name = "FreqSceneGlBootstrap";
-        var wndClass = new WindowsInterop.WndClassExW
+        var wndClass = new WNDCLASSEXW
         {
-            Size = (uint)sizeof(WindowsInterop.WndClassExW),
-            WndProc = WindowsInterop.GetProcAddress(
-                WindowsInterop.GetModuleHandleW("user32.dll"), "DefWindowProcW"),
-            Instance = WindowsInterop.GetModuleHandleW(null),
+            cbSize = (uint)sizeof(WNDCLASSEXW),
+            lpfnWndProc = &BootstrapWndProc,
+            hInstance = PInvoke.GetModuleHandle(default(PCWSTR)),
         };
         fixed (char* className = name)
         {
-            wndClass.ClassName = (IntPtr)className;
-            if (WindowsInterop.RegisterClassExW(ref wndClass) == 0)
+            wndClass.lpszClassName = className;
+            if (PInvoke.RegisterClassEx(in wndClass) == 0)
             {
                 throw new InvalidOperationException("The WGL bootstrap window class could not be registered.");
             }
@@ -413,13 +413,17 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
         return name;
     }
 
+    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
+    private static LRESULT BootstrapWndProc(HWND hwnd, uint message, WPARAM wParam, LPARAM lParam) =>
+        PInvoke.DefWindowProc(hwnd, message, wParam, lParam);
+
     private static IntPtr GetGlFunction(string name)
     {
-        var pointer = WindowsInterop.WglGetProcAddress(name);
+        IntPtr pointer = PInvoke.wglGetProcAddress(name);
         var value = pointer.ToInt64();
         if (value is >= -1 and <= 3)
         {
-            pointer = WindowsInterop.GetProcAddress(WindowsInterop.GetModuleHandleW("opengl32.dll"), name);
+            pointer = PInvoke.GetProcAddress(PInvoke.GetModuleHandle("opengl32.dll"), name);
         }
 
         return pointer;
@@ -427,13 +431,13 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
 
     private void RenderCore()
     {
-        if (!WindowsInterop.GetClientRect(_hwnd, out var rect))
+        if (!PInvoke.GetClientRect(_hwnd, out var rect))
         {
             return;
         }
 
-        var width = rect.Right - rect.Left;
-        var height = rect.Bottom - rect.Top;
+        var width = rect.Width;
+        var height = rect.Height;
         if (width <= 0 || height <= 0)
         {
             return;
@@ -468,7 +472,7 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
             instance.InGlScope = false;
         }
 
-        WindowsInterop.SwapBuffers(_dc);
+        PInvoke.SwapBuffers(_dc);
     }
 
     private void EnsureInstance()
@@ -544,24 +548,20 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
 
         _refreshRateExpiry = now + Stopwatch.Frequency * 2;
 
-        var monitor = WindowsInterop.MonitorFromWindow(_hwnd, MonitorDefaultToNearest);
-        if (monitor != IntPtr.Zero)
+        var monitor = PInvoke.MonitorFromWindow(_hwnd, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+        if (!monitor.IsNull)
         {
-            var info = new WindowsInterop.MonitorInfoExW
+            var info = default(MONITORINFOEXW);
+            info.monitorInfo.cbSize = (uint)sizeof(MONITORINFOEXW);
+            if (PInvoke.GetMonitorInfo(monitor, (MONITORINFO*)&info))
             {
-                Size = (uint)sizeof(WindowsInterop.MonitorInfoExW),
-            };
-            if (WindowsInterop.GetMonitorInfoW(monitor, ref info))
-            {
-                var device = new string(info.Device, 0, DeviceNameLength(info.Device));
-                var mode = new WindowsInterop.DevModeW
+                var mode = default(DEVMODEW);
+                mode.dmSize = (ushort)sizeof(DEVMODEW);
+                if (PInvoke.EnumDisplaySettings(
+                        info.szDevice.ToString(), ENUM_DISPLAY_SETTINGS_MODE.ENUM_CURRENT_SETTINGS, ref mode) &&
+                    mode.dmDisplayFrequency > 1)
                 {
-                    Size = (ushort)sizeof(WindowsInterop.DevModeW),
-                };
-                if (WindowsInterop.EnumDisplaySettingsW(device, EnumCurrentSettings, ref mode) &&
-                    mode.DisplayFrequency > 1)
-                {
-                    _cachedRefreshRate = mode.DisplayFrequency;
+                    _cachedRefreshRate = mode.dmDisplayFrequency;
                     return _cachedRefreshRate;
                 }
             }
@@ -569,17 +569,6 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
 
         _cachedRefreshRate = 60;
         return _cachedRefreshRate;
-    }
-
-    private static int DeviceNameLength(char* device)
-    {
-        var length = 0;
-        while (length < 32 && device[length] != '\0')
-        {
-            length++;
-        }
-
-        return length;
     }
 
     private void TeardownOnRenderThread()
@@ -593,18 +582,18 @@ internal sealed unsafe class WindowsVisualizerHost : IVisualizerHost, IDisposabl
             _instance = null;
         }
 
-        if (_glContext != IntPtr.Zero)
+        if (!_glContext.IsNull)
         {
             _pipeline.Release();
-            WindowsInterop.WglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
-            WindowsInterop.WglDeleteContext(_glContext);
-            _glContext = IntPtr.Zero;
+            PInvoke.wglMakeCurrent(HDC.Null, HGLRC.Null);
+            PInvoke.wglDeleteContext(_glContext);
+            _glContext = HGLRC.Null;
         }
 
-        if (_dc != IntPtr.Zero)
+        if (!_dc.IsNull)
         {
-            WindowsInterop.ReleaseDC(_hwnd, _dc);
-            _dc = IntPtr.Zero;
+            PInvoke.ReleaseDC(_hwnd, _dc);
+            _dc = HDC.Null;
         }
     }
 }

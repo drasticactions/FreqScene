@@ -1,14 +1,16 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Gdi;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace FreqScene;
 
+[SupportedOSPlatform("windows10.0.14393")]
 internal static unsafe class WindowsDisplays
 {
-    private const int SmCxScreen = 0;
-    private const int SmCyScreen = 1;
-    private const uint MonitorInfoPrimary = 1;
-
-    private static List<(string Device, WindowsInterop.Rect Bounds, bool IsPrimary)>? s_monitors;
+    private static List<(string Device, RECT Bounds, bool IsPrimary)>? s_monitors;
 
     public static IReadOnlyList<DisplayInfo> List()
     {
@@ -16,14 +18,14 @@ internal static unsafe class WindowsDisplays
         foreach (var (device, bounds, isPrimary) in Enumerate())
         {
             var name = DisplayName(device, result.Count + 1);
-            var label = $"{name} ({bounds.Right - bounds.Left}×{bounds.Bottom - bounds.Top})";
+            var label = $"{name} ({bounds.Width}×{bounds.Height})";
             result.Add(new DisplayInfo(device, isPrimary ? label + " — Primary" : label, isPrimary));
         }
 
         return result;
     }
 
-    public static WindowsInterop.Rect ResolveBounds(string? key)
+    public static RECT ResolveBounds(string? key)
     {
         var monitors = Enumerate();
         foreach (var (device, bounds, _) in monitors)
@@ -42,36 +44,35 @@ internal static unsafe class WindowsDisplays
             }
         }
 
-        return new WindowsInterop.Rect
+        return new RECT
         {
-            Right = WindowsInterop.GetSystemMetrics(SmCxScreen),
-            Bottom = WindowsInterop.GetSystemMetrics(SmCyScreen),
+            right = PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXSCREEN),
+            bottom = PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CYSCREEN),
         };
     }
 
-    private static List<(string Device, WindowsInterop.Rect Bounds, bool IsPrimary)> Enumerate()
+    private static List<(string Device, RECT Bounds, bool IsPrimary)> Enumerate()
     {
         var monitors = s_monitors = [];
-        WindowsInterop.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, &MonitorCallback, IntPtr.Zero);
+        PInvoke.EnumDisplayMonitors(HDC.Null, null, &MonitorCallback, default);
         s_monitors = null;
         return monitors;
     }
 
-    [UnmanagedCallersOnly]
-    private static int MonitorCallback(IntPtr monitor, IntPtr dc, IntPtr rect, IntPtr data)
+    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
+    private static BOOL MonitorCallback(HMONITOR monitor, HDC dc, RECT* rect, LPARAM data)
     {
-        var info = new WindowsInterop.MonitorInfoExW { Size = (uint)sizeof(WindowsInterop.MonitorInfoExW) };
-        if (WindowsInterop.GetMonitorInfoW(monitor, ref info))
+        var info = default(MONITORINFOEXW);
+        info.monitorInfo.cbSize = (uint)sizeof(MONITORINFOEXW);
+        if (PInvoke.GetMonitorInfo(monitor, (MONITORINFO*)&info))
         {
-            var device = new ReadOnlySpan<char>(info.Device, 32);
-            var terminator = device.IndexOf('\0');
             s_monitors?.Add((
-                new string(terminator < 0 ? device : device[..terminator]),
-                info.Monitor,
-                (info.Flags & MonitorInfoPrimary) != 0));
+                info.szDevice.ToString(),
+                info.monitorInfo.rcMonitor,
+                (info.monitorInfo.dwFlags & PInvoke.MONITORINFOF_PRIMARY) != 0));
         }
 
-        return 1; // continue enumeration
+        return true; // continue enumeration
     }
 
     private static string DisplayName(string device, int ordinal)

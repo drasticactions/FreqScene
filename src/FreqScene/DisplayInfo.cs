@@ -11,7 +11,7 @@ internal static class DisplayTargets
                 return MacDisplays.List();
             }
 
-            if (OperatingSystem.IsWindows())
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 14393))
             {
                 return WindowsDisplays.List();
             }

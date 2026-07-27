@@ -1,0 +1,62 @@
+// Windowing
+RegisterClassEx
+CreateWindowEx
+DefWindowProc
+DestroyWindow
+ShowWindow
+SetWindowPos
+SetForegroundWindow
+GetClientRect
+GetWindowRect
+GetWindowLong
+IsZoomed
+GetSystemMetrics
+GetDpiForWindow
+LoadCursor
+IDC_ARROW
+WM_CLOSE
+WM_ERASEBKGND
+WM_NCCALCSIZE
+WM_NCHITTEST
+WM_DPICHANGED
+HTCLIENT
+HTCAPTION
+HTLEFT
+HTRIGHT
+HTTOP
+HTTOPLEFT
+HTTOPRIGHT
+HTBOTTOM
+HTBOTTOMLEFT
+HTBOTTOMRIGHT
+
+// Displays
+MonitorFromWindow
+GetMonitorInfo
+MONITORINFOEXW
+EnumDisplayMonitors
+EnumDisplaySettings
+ENUM_DISPLAY_SETTINGS_MODE
+MONITORINFOF_PRIMARY
+
+// OpenGL / pixel formats
+GetDC
+ReleaseDC
+ChoosePixelFormat
+SetPixelFormat
+DescribePixelFormat
+SwapBuffers
+wglCreateContext
+wglDeleteContext
+wglMakeCurrent
+wglGetProcAddress
+
+// DWM
+DwmSetWindowAttribute
+DWM_WINDOW_CORNER_PREFERENCE
+
+// Misc
+GetModuleHandle
+GetProcAddress
+timeBeginPeriod
+timeEndPeriod

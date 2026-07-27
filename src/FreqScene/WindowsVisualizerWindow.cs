@@ -1,55 +1,23 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Gdi;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace FreqScene;
 
+[SupportedOSPlatform("windows10.0.14393")]
 internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
 {
     private const string WindowClassName = "FreqSceneVisualizerWindow";
-
-    private const uint ClassStyleOwnDc = 0x0020;
-    private const uint ClassStyleHRedraw = 0x0002;
-    private const uint ClassStyleVRedraw = 0x0001;
-
-    private const uint WsOverlappedWindow = 0x00CF_0000;
-    private const uint WsThickFrame = 0x0004_0000;
-
-    private const uint WmClose = 0x0010;
-    private const uint WmEraseBackground = 0x0014;
-    private const uint WmNcCalcSize = 0x0083;
-    private const uint WmNcHitTest = 0x0084;
-    private const uint WmDpiChanged = 0x02E0;
-
-    private const int HitClient = 1;
-    private const int HitCaption = 2;
-    private const int HitLeft = 10;
-    private const int HitRight = 11;
-    private const int HitTop = 12;
-    private const int HitTopLeft = 13;
-    private const int HitTopRight = 14;
-    private const int HitBottom = 15;
-    private const int HitBottomLeft = 16;
-    private const int HitBottomRight = 17;
-
-    private const int SwHide = 0;
-    private const int SwShow = 5;
-
-    private const int GwlStyle = -16;
-    private const uint MonitorDefaultToNearest = 2;
-
-    private const int SmCxScreen = 0;
-    private const int SmCyScreen = 1;
-
-    private const uint SwpNoZOrder = 0x0004;
-    private const uint SwpNoActivate = 0x0010;
-
-    private const int IdcArrow = 32512;
 
     private static bool s_classRegistered;
 
     private readonly VisualizerCoordinator _coordinator;
     private readonly WindowsVisualizerHost _host;
     private readonly Action<int> _onRenderScaleChanged;
-    private IntPtr _hwnd;
+    private HWND _hwnd;
     private bool _closed;
 
     public WindowsVisualizerWindow(VisualizerCoordinator coordinator, DisplayMode mode, string? displayKey)
@@ -59,13 +27,13 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
 
         const int width = 640;
         const int height = 640;
-        var x = Math.Max(0, (WindowsInterop.GetSystemMetrics(SmCxScreen) - width) / 2);
-        var y = Math.Max(0, (WindowsInterop.GetSystemMetrics(SmCyScreen) - height) / 2);
+        var x = Math.Max(0, (PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXSCREEN) - width) / 2);
+        var y = Math.Max(0, (PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CYSCREEN) - height) / 2);
 
-        _hwnd = WindowsInterop.CreateWindowExW(
-            0, WindowClassName, "FreqScene", WsOverlappedWindow, x, y, width, height,
-            IntPtr.Zero, IntPtr.Zero, WindowsInterop.GetModuleHandleW(null), IntPtr.Zero);
-        if (_hwnd == IntPtr.Zero)
+        _hwnd = PInvoke.CreateWindowEx(
+            0, WindowClassName, "FreqScene", WINDOW_STYLE.WS_OVERLAPPEDWINDOW, x, y, width, height,
+            HWND.Null, null, PInvoke.GetModuleHandle((string?)null), null);
+        if (_hwnd.IsNull)
         {
             throw new InvalidOperationException(
                 $"The visualizer window could not be created (error {Marshal.GetLastPInvokeError()}).");
@@ -89,8 +57,8 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             return;
         }
 
-        WindowsInterop.ShowWindow(_hwnd, SwShow);
-        WindowsInterop.SetForegroundWindow(_hwnd);
+        PInvoke.ShowWindow(_hwnd, SHOW_WINDOW_CMD.SW_SHOW);
+        PInvoke.SetForegroundWindow(_hwnd);
         _host.Start();
     }
 
@@ -105,8 +73,8 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
         _coordinator.RenderScaleChanged -= _onRenderScaleChanged;
         _coordinator.DetachControl(_host);
         _host.Dispose();
-        WindowsInterop.DestroyWindow(_hwnd);
-        _hwnd = IntPtr.Zero;
+        PInvoke.DestroyWindow(_hwnd);
+        _hwnd = HWND.Null;
     }
 
     private static void EnsureClass()
@@ -116,18 +84,18 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
             return;
         }
 
-        var wndClass = new WindowsInterop.WndClassExW
+        var wndClass = new WNDCLASSEXW
         {
-            Size = (uint)sizeof(WindowsInterop.WndClassExW),
-            Style = ClassStyleOwnDc | ClassStyleHRedraw | ClassStyleVRedraw,
-            WndProc = (IntPtr)(delegate* unmanaged<IntPtr, uint, IntPtr, IntPtr, IntPtr>)&WndProc,
-            Instance = WindowsInterop.GetModuleHandleW(null),
-            Cursor = WindowsInterop.LoadCursorW(IntPtr.Zero, IdcArrow),
+            cbSize = (uint)sizeof(WNDCLASSEXW),
+            style = WNDCLASS_STYLES.CS_OWNDC | WNDCLASS_STYLES.CS_HREDRAW | WNDCLASS_STYLES.CS_VREDRAW,
+            lpfnWndProc = &WndProc,
+            hInstance = PInvoke.GetModuleHandle(default(PCWSTR)),
+            hCursor = PInvoke.LoadCursor(default(HINSTANCE), PInvoke.IDC_ARROW),
         };
         fixed (char* className = WindowClassName)
         {
-            wndClass.ClassName = (IntPtr)className;
-            if (WindowsInterop.RegisterClassExW(ref wndClass) == 0)
+            wndClass.lpszClassName = className;
+            if (PInvoke.RegisterClassEx(in wndClass) == 0)
             {
                 throw new InvalidOperationException(
                     $"The visualizer window class could not be registered (error {Marshal.GetLastPInvokeError()}).");
@@ -137,94 +105,91 @@ internal sealed unsafe class WindowsVisualizerWindow : INativeVisualizerWindow
         s_classRegistered = true;
     }
 
-    [UnmanagedCallersOnly]
-    private static IntPtr WndProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam)
+    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
+    private static LRESULT WndProc(HWND hwnd, uint message, WPARAM wParam, LPARAM lParam)
     {
         switch (message)
         {
-            case WmNcCalcSize when IsBorderless(hwnd):
-                if (WindowsInterop.IsZoomed(hwnd))
+            case PInvoke.WM_NCCALCSIZE when IsBorderless(hwnd):
+                if (PInvoke.IsZoomed(hwnd))
                 {
-                    var monitor = WindowsInterop.MonitorFromWindow(hwnd, MonitorDefaultToNearest);
-                    var info = new WindowsInterop.MonitorInfoExW
+                    var monitor = PInvoke.MonitorFromWindow(hwnd, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+                    var info = default(MONITORINFOEXW);
+                    info.monitorInfo.cbSize = (uint)sizeof(MONITORINFOEXW);
+                    if (!monitor.IsNull && PInvoke.GetMonitorInfo(monitor, (MONITORINFO*)&info))
                     {
-                        Size = (uint)sizeof(WindowsInterop.MonitorInfoExW),
-                    };
-                    if (monitor != IntPtr.Zero && WindowsInterop.GetMonitorInfoW(monitor, ref info))
-                    {
-                        *(WindowsInterop.Rect*)lParam = info.Work;
+                        *(RECT*)lParam.Value = info.monitorInfo.rcWork;
                     }
                 }
 
-                return IntPtr.Zero;
+                return default;
 
-            case WmNcHitTest when IsBorderless(hwnd):
-                return new IntPtr(HitTest(hwnd, lParam));
+            case PInvoke.WM_NCHITTEST when IsBorderless(hwnd):
+                return (LRESULT)(nint)HitTest(hwnd, lParam);
 
-            case WmEraseBackground:
-                return new IntPtr(1);
+            case PInvoke.WM_ERASEBKGND:
+                return (LRESULT)1;
 
-            case WmClose:
-                WindowsInterop.ShowWindow(hwnd, SwHide);
-                return IntPtr.Zero;
+            case PInvoke.WM_CLOSE:
+                PInvoke.ShowWindow(hwnd, SHOW_WINDOW_CMD.SW_HIDE);
+                return default;
 
-            case WmDpiChanged:
+            case PInvoke.WM_DPICHANGED:
             {
-                var suggested = (WindowsInterop.Rect*)lParam;
-                WindowsInterop.SetWindowPos(
-                    hwnd, IntPtr.Zero,
-                    suggested->Left, suggested->Top,
-                    suggested->Right - suggested->Left, suggested->Bottom - suggested->Top,
-                    SwpNoZOrder | SwpNoActivate);
-                return IntPtr.Zero;
+                var suggested = (RECT*)lParam.Value;
+                PInvoke.SetWindowPos(
+                    hwnd, HWND.Null,
+                    suggested->left, suggested->top, suggested->Width, suggested->Height,
+                    SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE);
+                return default;
             }
         }
 
-        return WindowsInterop.DefWindowProcW(hwnd, message, wParam, lParam);
+        return PInvoke.DefWindowProc(hwnd, message, wParam, lParam);
     }
 
-    private static bool IsBorderless(IntPtr hwnd) =>
-        (WindowsInterop.GetWindowLongPtrW(hwnd, GwlStyle).ToInt64() & WsThickFrame) != 0;
+    private static bool IsBorderless(HWND hwnd) =>
+        (PInvoke.GetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_STYLE) & (int)WINDOW_STYLE.WS_THICKFRAME) != 0;
 
-    private static int HitTest(IntPtr hwnd, IntPtr lParam)
+    private static uint HitTest(HWND hwnd, LPARAM lParam)
     {
-        if (!WindowsInterop.GetWindowRect(hwnd, out var rect))
+        if (!PInvoke.GetWindowRect(hwnd, out var rect))
         {
-            return HitClient;
+            return PInvoke.HTCLIENT;
         }
 
-        var packed = lParam.ToInt64();
+        var packed = (long)lParam.Value;
         int x = (short)(packed & 0xFFFF);
         int y = (short)((packed >> 16) & 0xFFFF);
 
-        if (!WindowsInterop.IsZoomed(hwnd))
+        if (!PInvoke.IsZoomed(hwnd))
         {
-            var margin = Math.Max(4, (int)(8 * WindowsInterop.GetDpiForWindow(hwnd) / 96.0));
-            var left = x < rect.Left + margin;
-            var right = x >= rect.Right - margin;
-            var top = y < rect.Top + margin;
-            var bottom = y >= rect.Bottom - margin;
+            var margin = Math.Max(4, (int)(8 * PInvoke.GetDpiForWindow(hwnd) / 96.0));
+            var left = x < rect.left + margin;
+            var right = x >= rect.right - margin;
+            var top = y < rect.top + margin;
+            var bottom = y >= rect.bottom - margin;
             if (top)
             {
-                return left ? HitTopLeft : right ? HitTopRight : HitTop;
+                return left ? PInvoke.HTTOPLEFT : right ? PInvoke.HTTOPRIGHT : PInvoke.HTTOP;
             }
 
             if (bottom)
             {
-                return left ? HitBottomLeft : right ? HitBottomRight : HitBottom;
+                return left ? PInvoke.HTBOTTOMLEFT : right ? PInvoke.HTBOTTOMRIGHT : PInvoke.HTBOTTOM;
             }
 
             if (left)
             {
-                return HitLeft;
+                return PInvoke.HTLEFT;
             }
 
             if (right)
             {
-                return HitRight;
+                return PInvoke.HTRIGHT;
             }
         }
 
-        return HitCaption;
+        return PInvoke.HTCAPTION;
     }
 }
