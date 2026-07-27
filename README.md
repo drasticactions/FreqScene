@@ -1,6 +1,8 @@
 # FreqScene
 
-FreqScene is a [projectM](https://github.com/projectM-visualizer/projectm)-based music visualizer program, written in .NET and Avalonia. It accepts [MilkDrop](https://en.wikipedia.org/wiki/MilkDrop) presets and will render them in a window, as an overlay over a monitor, and as a replacment for a desktop wallpaper. It supports macOS, Linux, and Windows.
+FreqScene are a set of [projectM](https://github.com/projectM-visualizer/projectm)-based music visualizer programs, written in .NET.
+
+You can find user-focused docs in the [docs](./docs/) folder.
 
 ## CI Builds
 
